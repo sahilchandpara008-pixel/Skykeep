@@ -7,11 +7,11 @@ Your project ref is `vzeehoissxdutmxdezjf` (Tokyo). Change these in the Supabase
 
 1. **Authentication › Sign In / Providers**: turn on **Allow anonymous sign-ins**. Email provider on, **Confirm email** on.
 2. **Authentication › URL Configuration**
-   - Site URL: `https://skykeep.vercel.app`
+   - Site URL: `https://skykeep-web.vercel.app`
    - Redirect URLs (add all):
      - `com.skykeep.app://login-callback`
      - `com.skykeep.play://login-callback`
-     - `https://skykeep.vercel.app/**`
+     - `https://skykeep-web.vercel.app/**`
 3. **Cron (automatic jobs)**: the migrations create every job (`expire-orders`, `meta-send` every 5 min,
    `flixvault-sync` every 10 min, `push-tick` every minute, `measurement-retention` daily). They call our edge
    functions through `pg_net` with a random key that the database generated itself (`private.meta_cron`, header
@@ -43,7 +43,7 @@ Your project ref is `vzeehoissxdutmxdezjf` (Tokyo). Change these in the Supabase
 On every push to `main`, the `supabase-deploy` job runs `db push` and deploys all edge functions.
 
 ## 3. Vercel
-1. vercel.com › Add New › Project › import `rekhachandpara1975/Skykeep`.
+1. vercel.com › Add New › Project › import `sahilchandpara008-pixel/Skykeep`.
 2. **Root Directory: `admin`** (framework auto-detects Next.js).
 3. Environment variables (Production + Preview):
    | Name | Value |
@@ -51,9 +51,9 @@ On every push to `main`, the `supabase-deploy` job runs `db push` and deploys al
    | `NEXT_PUBLIC_SUPABASE_URL` | `https://vzeehoissxdutmxdezjf.supabase.co` |
    | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Project Settings › API › publishable key |
    | `SUPABASE_SECRET_KEY` | Project Settings › API › secret key (server only, **no** `NEXT_PUBLIC_`) |
-   | `NEXT_PUBLIC_SITE_URL` | `https://skykeep.vercel.app` |
+   | `NEXT_PUBLIC_SITE_URL` | `https://skykeep-web.vercel.app` |
    | `ANDROID_SIGNING_SHA256` | SHA-256 of the release key, from the mobile CI log (`keytool -list`) |
-4. Name the project `skykeep` so the URL is `skykeep.vercel.app` (or set your domain and update `NEXT_PUBLIC_SITE_URL` + Auth URLs).
+4. Name the project `skykeep` so the URL is `skykeep-web.vercel.app` (or set your domain and update `NEXT_PUBLIC_SITE_URL` + Auth URLs).
 
 ## 4. First owner
 1. In Supabase › Authentication › Users › **Add user** (email + password, auto-confirm), use your own email.
@@ -62,7 +62,7 @@ On every push to `main`, the `supabase-deploy` job runs `db push` and deploys al
    insert into public.admins (user_id, role, email)
    select id, 'owner', email from auth.users where email = 'YOUR_EMAIL';
    ```
-3. Log in at `https://skykeep.vercel.app/control-7x2k/login`. Invite other admins from the **Admins** page.
+3. Log in at `https://skykeep-web.vercel.app/control-7x2k/login`. Invite other admins from the **Admins** page.
 
 ## 5. Turn on payments
 Admin › Payments › enter your UPI ID and payee name (exactly as your bank shows it) › Save. Then Admin › Plans › add plans. Until a UPI ID is set, payments stay off everywhere.

@@ -10,5 +10,5 @@ export const POLICY_VERSION = '2026-11';
 export const ADS_APK_PATH = 'SkyKeep-ads.apk';
 
 /** Direct download links, refreshed by CI on every main build (GitHub release "latest"). */
-export const APK_URL = 'https://github.com/rekhachandpara1975/Skykeep/releases/latest/download/SkyKeep.apk';
-export const ADS_APK_URL = 'https://github.com/rekhachandpara1975/Skykeep/releases/latest/download/SkyKeep-ads.apk';
+export const APK_URL = 'https://github.com/sahilchandpara008-pixel/Skykeep/releases/latest/download/SkyKeep.apk';
+export const ADS_APK_URL = 'https://github.com/sahilchandpara008-pixel/Skykeep/releases/latest/download/SkyKeep-ads.apk';
