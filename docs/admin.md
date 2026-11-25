@@ -21,6 +21,6 @@ Changes reach open apps in seconds (Realtime on `app_mode`, `plans`, `plan_catal
 | Users › Grant | Adds a plan for N days (stacks on the current end date). |
 | Requests › Delete account | Account and files removed; payment records kept (no name) for tax. |
 | Meta Pixel › Send events | Queued Lead / CompleteRegistration / Purchase events go to Meta every 5 min. |
-| Meta Pixel › Upload ads APK | `/d` download button serves the new APK. |
+| Website download (`/d`, `/get`) | Visitors from a Meta ad (fbclid, or utm_source=meta + paid medium) get the ads APK; everyone else gets the organic APK. |
 
 See `rules.md` for exactly who sees what, `payments.md` for the daily bank check and `play-store.md` for the Play Store build.

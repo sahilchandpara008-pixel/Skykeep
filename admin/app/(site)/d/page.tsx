@@ -1,14 +1,18 @@
 import { supabasePublic } from '@/lib/supabase/server';
-import { APP_NAME, ADS_APK_URL } from '@/lib/site';
+import { isMetaAdQuery } from '@/lib/download-attribution';
+import { APP_NAME, ADS_APK_URL, APK_URL } from '@/lib/site';
 import { DownloadClient } from './client';
 
 export const metadata = { title: `Download ${APP_NAME} for Android` };
-export const revalidate = 300;
+export const dynamic = 'force-dynamic';
 
-export default async function Download() {
+/** Same rule as /get (and Puffle): only visitors from a Meta ad get the ads APK; everyone else the organic APK. */
+export default async function Download({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(await searchParams)) if (typeof v === 'string') q.set(k, v);
   const sb = supabasePublic();
   const { data: m } = await sb.from('meta_settings').select('pixel_id, enabled').single();
-  const apk = ADS_APK_URL;
+  const apk = isMetaAdQuery(q) ? ADS_APK_URL : APK_URL;
   return (
     <main className="mx-auto max-w-xl px-4 py-10 text-center">
       <h1 className="text-3xl font-bold">Get {APP_NAME}</h1>
