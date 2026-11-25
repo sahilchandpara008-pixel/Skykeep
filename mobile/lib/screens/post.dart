@@ -1,26 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../config.dart';
 import '../services/api.dart';
+import '../services/flixvault.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/pro_player.dart';
+import 'channels.dart' show ChannelIcon, ChannelPage, confirmBlock;
 import 'explore.dart';
-import 'home.dart' show HomeShellState;
 import 'login_sheet.dart';
 import 'premium.dart';
 
 const reportReasons = ['Sexual/nude', 'Violence', 'Hate/harassment', 'Copyright', 'Spam/scam', 'Other'];
 
+/// Share text for a video: SkyKeep's website (Flixvault videos have no public page of their own).
+String shareText(Json? post) => '${post?['title'] ?? Config.appName} · Watch on ${Config.appName}: ${Config.websiteUrl}';
+
+/// One Flixvault video. Premium users get the full video, free users the preview (the server decides
+/// with every play link); organic guests log in first.
 class PostScreen extends StatefulWidget {
-  const PostScreen({super.key, required this.postId, this.queue = const []});
+  const PostScreen({super.key, required this.postId, this.queue = const [], this.autoPlay = false});
   final String postId;
 
   /// Posts in the order they were listed: powers the player's previous / next buttons.
   final List<String> queue;
+
+  /// Opened with the player's previous / next buttons: keep playing.
+  final bool autoPlay;
   @override
   State<PostScreen> createState() => _PostScreenState();
 }
@@ -37,17 +45,30 @@ class _PostScreenState extends State<PostScreen> {
   }
 
   Future<void> _load() async {
-    final api = AppScope.read(context).api;
+    final app = AppScope.read(context);
+    final api = app.api;
     try {
-      _post = await api.post(widget.postId);
+      _post = await api.fvPost(widget.postId);
     } catch (_) {}
-    if (mounted) setState(() => _loading = false);
+    if (!mounted) return;
+    setState(() => _loading = false);
+    final p = _post;
+    if (p == null) return;
+    app.measurement.track('ViewContent', {'screen': 'Post'});
     try {
-      // Suggest any other video (same channel included) — excluding only this post, so a single-channel
-      // app still shows "More to watch".
-      final more = await api.suggestedPosts(widget.postId);
-      if (mounted) setState(() => _more = more);
-    } catch (_) {}
+      // "More to watch": newer videos from this channel first, then popular videos from other channels.
+      final channelId = p['channel_id'] as String?;
+      final same = channelId == null
+          ? const <Json>[]
+          : ((await api.fvChannelPage(channelId))?.posts ?? const <Json>[]).where((x) => x['id'] != widget.postId).take(6).toList();
+      final other = (await api.fvExplore(tab: 'popular'))
+          .where((x) => x['channel_id'] != channelId && x['id'] != widget.postId)
+          .take(6)
+          .toList();
+      if (mounted) setState(() => _more = [...same, ...other]);
+    } catch (_) {
+      /* suggestions never block playback */
+    }
   }
 
   int get _at => widget.queue.indexOf(widget.postId);
@@ -61,8 +82,12 @@ class _PostScreenState extends State<PostScreen> {
 
   String? get _prevId => _at > 0 ? widget.queue[_at - 1] : null;
 
-  void _open(String id, List<String> queue) =>
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PostScreen(postId: id, queue: queue)));
+  void _open(String id, List<String> queue) => Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(
+      builder: (_) => PostScreen(postId: id, queue: queue, autoPlay: true),
+    ),
+  );
 
   void _next() {
     final id = _nextId;
@@ -85,14 +110,19 @@ class _PostScreenState extends State<PostScreen> {
     final reason = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: C.surface,
-      builder: (c) => SafeArea(child: ListView(shrinkWrap: true, children: [
-        const ListTile(title: Text('Why are you reporting this?')),
-        for (final r in reportReasons) ListTile(title: Text(r), onTap: () => Navigator.pop(c, r)),
-      ])),
+      builder: (c) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(title: Text('Why are you reporting this?')),
+            for (final r in reportReasons) ListTile(title: Text(r), onTap: () => Navigator.pop(c, r)),
+          ],
+        ),
+      ),
     );
     if (reason == null || !mounted) return;
     try {
-      await AppScope.read(context).api.report('post', widget.postId, reason, null);
+      await AppScope.read(context).api.fvReport(widget.postId, reason);
       if (mounted) toast(context, 'Thanks — our team will review it.');
     } catch (e) {
       if (mounted) toast(context, friendlyError(e));
@@ -101,16 +131,17 @@ class _PostScreenState extends State<PostScreen> {
 
   Future<void> _block() async {
     final ch = _post?['channels'] as Map?;
-    if (ch == null || !await requireMember(context, reason: 'Log in to block channels')) return;
+    final id = _post?['channel_id'] as String?;
+    if (ch == null || id == null || !await requireMember(context, reason: 'Log in to block channels')) return;
     if (!mounted) return;
-    final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
-      title: Text('Block ${ch['name']}?'), content: const Text('You will no longer see posts from this channel.'),
-      actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Block'))]));
+    final ok = await confirmBlock(context, ch['name'] as String? ?? '');
     if (ok != true || !mounted) return;
     try {
-      await AppScope.read(context).api.blockChannel(ch['id'] as String);
-      if (mounted) { toast(context, 'Channel blocked'); Navigator.pop(context); }
+      await AppScope.read(context).api.fvBlock(id);
+      if (mounted) {
+        toast(context, 'Channel blocked. You can unblock it from Channels.');
+        Navigator.pop(context);
+      }
     } catch (e) {
       if (mounted) toast(context, friendlyError(e));
     }
@@ -118,40 +149,81 @@ class _PostScreenState extends State<PostScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final items = [...((_post?['post_items'] as List?) ?? const [])]..sort((a, b) => (((a as Map)['position'] as num?) ?? 0).compareTo(((b as Map)['position'] as num?) ?? 0));
+    final p = _post;
+    final items = [...((p?['post_items'] as List?) ?? const [])];
+    final ch = p?['channels'] as Map?;
+    final channelId = p?['channel_id'] as String?;
     return Scaffold(
       appBar: AppBar(
-        title: Text(_post?['title'] as String? ?? ''),
+        title: Text(p?['title'] as String? ?? ''),
         actions: [
-          IconButton(tooltip: 'Share', icon: const Icon(Icons.share),
-              onPressed: () => SharePlus.instance.share(ShareParams(text: '${_post?['title'] ?? Config.appName} ${Config.websiteUrl}/p/${widget.postId}'))),
+          IconButton(
+            tooltip: 'Share',
+            icon: const Icon(Icons.share),
+            onPressed: p == null ? null : () => SharePlus.instance.share(ShareParams(text: shareText(p))),
+          ),
           PopupMenuButton<String>(
             tooltip: 'More',
+            enabled: p != null,
             onSelected: (v) => v == 'report' ? _report() : _block(),
-            itemBuilder: (_) => const [PopupMenuItem(value: 'report', child: Text('Report')), PopupMenuItem(value: 'block', child: Text('Block channel'))],
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'report', child: Text('Report')),
+              PopupMenuItem(value: 'block', child: Text('Block channel')),
+            ],
           ),
         ],
       ),
       body: _loading
           ? const SkeletonList(count: 3)
-          : _post == null
-              ? const EmptyState(icon: Icons.lock_outline, title: 'This post is not available')
-              : ListView(padding: const EdgeInsets.all(16), children: [
-                  Text((_post!['channels'] as Map?)?['name'] as String? ?? '', style: const TextStyle(color: C.muted)),
-                  if ((_post!['description'] as String?)?.isNotEmpty == true)
-                    Padding(padding: const EdgeInsets.only(top: 8), child: Text(_post!['description'] as String)),
-                  const SizedBox(height: 16),
-                  for (final it in items) Padding(padding: const EdgeInsets.only(bottom: 16), child: MediaItem(
-                      item: Json.from(it as Map), title: _post!['title'] as String?,
+          : p == null
+          ? const EmptyState(icon: Icons.lock_outline, title: 'This video is not available')
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                for (final it in items)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: MediaItem(
+                      autoPlay: widget.autoPlay,
+                      key: ValueKey(it['id']),
+                      item: Json.from(it as Map),
+                      title: p['title'] as String?,
                       onNext: _nextId != null ? _next : null,
-                      onPrevious: _prevId != null ? _previous : null)),
-                  if (_more.isNotEmpty) _MoreToWatch(posts: _more),
-                ]),
+                      onPrevious: _prevId != null ? _previous : null,
+                    ),
+                  ),
+                if (items.isEmpty) const EmptyState(icon: Icons.hourglass_empty, title: 'No video yet'),
+                Text(p['title'] as String? ?? '', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                if ((p['description'] as String?)?.trim().isNotEmpty == true)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(p['description'] as String, style: const TextStyle(color: C.muted)),
+                  ),
+                if (ch != null && channelId != null) ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    child: ListTile(
+                      leading: ClipOval(child: ChannelIcon(keyName: ch['icon_url'] as String?, size: 38)),
+                      title: Text(ch['name'] as String? ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChannelPage(channelId: channelId, name: ch['name'] as String?),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                if (_more.isNotEmpty) _MoreToWatch(posts: _more),
+              ],
+            ),
     );
   }
 }
 
-/// "More to watch": public videos from other channels, shown under the player for every viewer.
+/// "More to watch": more videos from this channel, then popular videos from other channels.
 class _MoreToWatch extends StatelessWidget {
   const _MoreToWatch({required this.posts});
   final List<Json> posts;
@@ -160,120 +232,259 @@ class _MoreToWatch extends StatelessWidget {
     final queue = [for (final p in posts) p['id'] as String];
     return Padding(
       padding: const EdgeInsets.only(top: 8),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('More to watch', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
-        const SizedBox(height: 12),
-        SizedBox(height: 190, child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          itemCount: posts.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 12),
-          itemBuilder: (context, i) {
-            final p = posts[i];
-            final its = (p['post_items'] as List?) ?? const [];
-            final thumb = its.isEmpty ? null : (its.first as Map)['thumbnail_key'] as String?;
-            final premium = its.any((e) => (e as Map)['is_premium'] == true);
-            final channel = (p['channels'] as Map?)?['name'] as String?;
-            return SizedBox(width: 130, child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () => Navigator.pushReplacement(context, MaterialPageRoute(
-                  builder: (_) => PostScreen(postId: p['id'] as String, queue: queue))),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(16),
-                    child: AspectRatio(aspectRatio: .72, child: MediaThumb(keyName: thumb, premium: premium)))),
-                const SizedBox(height: 6),
-                Text(p['title'] as String? ?? '', maxLines: 2, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, height: 1.15)),
-                if (channel != null)
-                  Text(channel, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, fontSize: 11)),
-              ]),
-            ));
-          },
-        )),
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('More to watch', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 190,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: posts.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (context, i) {
+                final p = posts[i];
+                final its = (p['post_items'] as List?) ?? const [];
+                final thumb = its.isEmpty ? null : (its.first as Map)['thumbnail_key'] as String?;
+                final premium = its.any((e) => (e as Map)['is_premium'] == true);
+                final channel = (p['channels'] as Map?)?['name'] as String?;
+                return SizedBox(
+                  width: 130,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () => Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PostScreen(postId: p['id'] as String, queue: queue),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: AspectRatio(
+                              aspectRatio: .72,
+                              child: MediaThumb(keyName: thumb, premium: premium),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          p['title'] as String? ?? '',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, height: 1.15),
+                        ),
+                        if (channel != null && channel.isNotEmpty)
+                          Text(
+                            channel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: C.muted, fontSize: 11),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-/// One media item: asks the server what to play (full / trailer / locked).
+/// One media item of a Flixvault post. Images show directly; videos play through the flixvault-feed link
+/// (full for Premium, the preview otherwise).
 class MediaItem extends StatefulWidget {
-  const MediaItem({super.key, required this.item, this.title, this.onNext, this.onPrevious});
+  const MediaItem({super.key, required this.item, this.title, this.onNext, this.onPrevious, this.autoPlay = false});
   final Json item;
   final String? title;
   final VoidCallback? onNext, onPrevious;
+  final bool autoPlay;
   @override
   State<MediaItem> createState() => _MediaItemState();
 }
 
 class _MediaItemState extends State<MediaItem> {
-  Json? _play;
-  bool _loaded = false;
+  bool? _preview; // null until decided from the user's status
+  bool _locked = false, _started = false;
+  late bool _play = widget.autoPlay;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      try { _play = await AppScope.read(context).api.playable(widget.item['id'] as String); } catch (_) {}
-      if (mounted) setState(() => _loaded = true);
-    });
-  }
+  bool get _hasPreview => widget.item['has_preview'] == true;
+  bool get _premium => widget.item['is_premium'] == true;
 
-  Future<void> _download() async {
+  void _openPlans() => Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen()));
+
+  Future<String?> _resolve(String itemId, {required bool refresh}) async {
     final app = AppScope.read(context);
-    if (!app.status.isPremium) {
-      toast(context, 'Downloads are for Premium members');
-      if (Config.sellsPlans) { Navigator.of(context).popUntil((r) => r.isFirst); HomeShellState.current?.go(HomeShellState.premiumTab); }
-      return;
+    try {
+      final url = await app.api.fvPlay(itemId, kind: _preview == true ? 'preview' : 'video');
+      if (!_started) {
+        _started = true;
+        app.measurement.track('VideoStart', {'premium': _premium, 'preview': _preview == true});
+      }
+      return url;
+    } on FlixvaultError catch (e) {
+      // The server knows best: Premium ended or not active yet → fall back to the preview.
+      if (_preview != true && e.code == 'premium_required' && _hasPreview) {
+        if (mounted) setState(() => _preview = true);
+        return app.api.fvPlay(itemId, kind: 'preview');
+      }
+      if (e.code == 'premium_required' && mounted) setState(() => _locked = true);
+      rethrow;
     }
-    final url = await app.api.signedUrl('media', _play?['key'] as String?, download: true);
-    if (!mounted) return;
-    if (url == null) { toast(context, 'Could not start the download. Please try again.'); return; }
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = AppScope.of(context).status;
-    final kind = _play?['kind'] as String?;
-    final isVideo = (widget.item['mime'] as String? ?? '').startsWith('video/') || widget.item['duration_s'] != null;
-    if (!_loaded) return const Skeleton(height: 200);
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (kind == 'locked')
-        _Locked(plansVisible: s.plansVisible && Config.sellsPlans)
-      else if (kind != null && isVideo)
-        ProPlayer(
-          itemId: widget.item['id'] as String, storageKey: _play!['key'] as String, title: widget.title,
-          trailerKey: kind == 'full' ? _play!['trailer_key'] as String? : null, // watch the trailer first, then the full video
-          trailerOnly: kind == 'trailer', onNext: widget.onNext, onPrevious: widget.onPrevious,
-          onUpgrade: s.plansVisible && Config.sellsPlans ? () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen())) : null,
-        )
-      else if (kind != null)
-        ClipRRect(borderRadius: BorderRadius.circular(12),
-            child: AspectRatio(aspectRatio: 16 / 9, child: MediaThumb(keyName: _play!['key'] as String))),
-      if (kind == 'trailer')
-        Padding(padding: const EdgeInsets.only(top: 8), child: Text(
-            s.plansVisible && Config.sellsPlans ? 'Trailer · Get Premium to watch the full video' : 'Trailer · Full video for Premium members',
-            style: const TextStyle(color: C.goldText, fontWeight: FontWeight.w600))),
-      if (kind == 'full') // the server only returns 'full' to people allowed to have the file
-        Align(alignment: Alignment.centerLeft,
-            child: TextButton.icon(onPressed: _download, icon: const Icon(Icons.download), label: const Text('Download'))),
-    ]);
+    final app = AppScope.of(context);
+    final s = app.status;
+    final plans = s.plansVisible && Config.sellsPlans;
+    final thumb = widget.item['thumbnail_key'] as String?;
+    if ((widget.item['mime'] as String? ?? '').startsWith('image/') || widget.item['kind'] == 'image') {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: MediaThumb(keyName: thumb),
+        ),
+      );
+    }
+    final access = playbackAccess(
+      guest: app.api.isGuest,
+      source: s.source,
+      canPlayPremium: s.canPlayPremium,
+      premium: _premium,
+      hasPreview: _hasPreview,
+    );
+    if (access == PlaybackAccess.login) {
+      return _Gate(
+        thumb: thumb,
+        icon: Icons.login,
+        title: 'Log in to watch',
+        action: FilledButton(
+          onPressed: () => requireMember(context, reason: 'Log in to watch videos'),
+          child: const Text('Log in'),
+        ),
+      );
+    }
+    if (access == PlaybackAccess.subscribe || _locked) {
+      return _Gate(
+        thumb: thumb,
+        icon: Icons.lock,
+        iconColor: C.gold,
+        title: 'For Premium members',
+        action: plans ? TextButton(onPressed: _openPlans, child: const Text('Get Premium')) : null,
+      );
+    }
+    _preview ??= access == PlaybackAccess.preview;
+    final seconds = widget.item['duration_s'] as int?;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!_play)
+          // Tap to play: the short-lived link is only asked for when the user wants to watch.
+          Semantics(
+            button: true,
+            label: 'Play video',
+            child: InkWell(
+              key: const Key('play-video'),
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => setState(() => _play = true),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      MediaThumb(keyName: thumb, premium: _premium, seconds: seconds),
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(color: C.navy.withValues(alpha: .6), shape: BoxShape.circle),
+                          child: const Icon(Icons.play_arrow_rounded, size: 44, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          )
+        else
+          ProPlayer(
+            autoPlay: true,
+            itemId: widget.item['id'] as String,
+            storageKey: widget.item['id'] as String,
+            title: widget.title,
+            trailerOnly: _preview!,
+            hls: true,
+            resolveUrl: _resolve,
+            onNext: widget.onNext,
+            onPrevious: widget.onPrevious,
+            onUpgrade: plans ? _openPlans : null,
+          ),
+        if (_preview!)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              plans ? 'Preview · Get Premium to watch the full video' : 'Preview · Full video for Premium members',
+              style: const TextStyle(color: C.goldText, fontWeight: FontWeight.w600),
+            ),
+          ),
+      ],
+    );
   }
 }
 
-class _Locked extends StatelessWidget {
-  const _Locked({required this.plansVisible});
-  final bool plansVisible;
+class _Gate extends StatelessWidget {
+  const _Gate({required this.thumb, required this.icon, required this.title, this.action, this.iconColor = Colors.white});
+  final String? thumb;
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final Widget? action;
   @override
-  Widget build(BuildContext context) => Container(
-        height: 200,
-        decoration: BoxDecoration(color: C.surface2, borderRadius: BorderRadius.circular(12), border: Border.all(color: C.border)),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Icon(Icons.lock, color: C.gold, size: 36),
-          const SizedBox(height: 8),
-          const Text('For Premium members', style: TextStyle(fontWeight: FontWeight.w600)),
-          if (plansVisible)
-            TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumScreen())),
-                child: const Text('Get Premium')),
-        ]),
-      );
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(12),
+    child: AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          MediaThumb(keyName: thumb),
+          ColoredBox(
+            color: C.navy.withValues(alpha: .72),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: iconColor, size: 34),
+                const SizedBox(height: 8),
+                Text(
+                  title,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+                if (action != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Theme(
+                      data: Theme.of(context).copyWith(
+                        textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: C.gold)),
+                      ),
+                      child: action!,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }

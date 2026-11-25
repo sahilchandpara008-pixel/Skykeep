@@ -2,18 +2,16 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../services/api.dart';
+import '../services/flixvault.dart';
 import '../services/status.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
-import 'channels.dart' show ChannelIcon;
+import '../widgets/pro_player.dart' show clock;
+import 'channels.dart' show ChannelIcon, ChannelTile;
 import 'home.dart';
 import 'login_sheet.dart';
 import 'post.dart';
 import 'profile.dart' show ProfileButton;
-
-/// Most categories shown as chips; the rest are under "More". Categories come from each channel's own category
-/// (set in Create/Edit channel, and by admins in Admin → Channels), so nothing here needs managing.
-const maxCategoryChips = 5;
 
 class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
@@ -24,9 +22,7 @@ class ExploreScreen extends StatefulWidget {
 class _ExploreScreenState extends State<ExploreScreen> {
   final _posts = <Json>[];
   List<Json> _files = const [];
-  List<String> _cats = const [];
-  String? _cat;
-  int _page = 0;
+  String _tab = 'all';
   bool _loading = true, _more = true, _error = false;
   final _scroll = ScrollController();
 
@@ -39,6 +35,20 @@ class _ExploreScreenState extends State<ExploreScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
   }
 
+  String? _accessKey;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Login, ads / organic or Premium changed: the server shows different videos, so load again.
+    final key = AppScope.of(context).accessKey;
+    final previous = _accessKey;
+    _accessKey = key;
+    if (previous != null && previous != key) {
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted && _accessKey == key) _reload(); });
+    }
+  }
+
   @override
   void dispose() {
     _scroll.dispose();
@@ -47,11 +57,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   Future<void> _reload() async {
     final api = AppScope.read(context).api;
-    setState(() { _posts.clear(); _page = 0; _more = true; _error = false; _loading = true; });
+    setState(() { _posts.clear(); _more = true; _error = false; _loading = true; });
     try {
-      final r = await Future.wait([api.recentFiles(), api.categories()]);
-      _files = r[0] as List<Json>;
-      _cats = r[1] as List<String>;
+      _files = await api.recentFiles();
     } catch (_) {}
     await _load(force: true);
   }
@@ -60,9 +68,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (!mounted || (!force && (_loading || !_more))) return;
     setState(() => _loading = true);
     try {
-      final xs = await AppScope.read(context).api.latestPosts(page: _page, category: _cat);
+      // Flixvault videos only; the server decides what this user may see (ads / organic).
+      final xs = await AppScope.read(context).api.fvExplore(tab: _tab, offset: _posts.length);
       if (!mounted) return;
-      setState(() { _posts.addAll(xs); _page++; _more = xs.length == Api.pageSize; });
+      final seen = {for (final p in _posts) p['id']};
+      setState(() { _posts.addAll(xs.where((p) => !seen.contains(p['id']))); _more = xs.length >= fvPageSize; });
     } catch (_) {
       if (mounted) setState(() => _error = true);
     } finally {
@@ -70,16 +80,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
   }
 
-  Future<void> _pickCategory(String c) async {
-    if (c == 'More') {
-      final picked = await showModalBottomSheet<String>(context: context, builder: (s) => SafeArea(child: ListView(shrinkWrap: true, children: [
-        const ListTile(title: Text('All categories', style: TextStyle(fontWeight: FontWeight.w700))),
-        for (final x in _cats) ListTile(title: Text(x), selected: x == _cat, onTap: () => Navigator.pop(s, x)),
-      ])));
-      if (picked == null) return;
-      c = picked;
-    }
-    _cat = c == 'All' ? null : c;
+  Future<void> _pickTab(String t) async {
+    if (t == _tab) return;
+    _tab = t;
     await _reload();
   }
 
@@ -91,27 +94,25 @@ class _ExploreScreenState extends State<ExploreScreen> {
     final name = (s.displayName ?? app.api.user?.email?.split('@').first ?? '').trim();
     final greeting = switch (DateTime.now().hour) { < 12 => 'Good morning', < 17 => 'Good afternoon', _ => 'Good evening' };
 
-    final chips = ['All', ..._cats.take(maxCategoryChips), if (_cats.length > maxCategoryChips) 'More'];
-    final moreSelected = _cat != null && _cats.indexOf(_cat!) >= maxCategoryChips;
     final header = <Widget>[
       Text(guest || name.isEmpty ? greeting : '$greeting, $name',
           style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: C.text)),
       const SizedBox(height: 4),
-      const Text('Your files and channels, in one place.', style: TextStyle(color: C.muted)),
+      const Text('Your files and videos, in one place.', style: TextStyle(color: C.muted)),
       const SizedBox(height: 16),
       _CloudSummary(status: s, guest: guest),
       if (_files.isNotEmpty) ...[
         SectionHeader('Recent files', onSeeAll: () => HomeShell.of(context)?.go(HomeShellState.cloudTab)),
         Card(child: Column(children: [for (final f in _files) _RecentFile(file: f)])),
       ],
-      const SectionHeader('Latest posts'),
-      if (_cats.isNotEmpty) SizedBox(height: 40, child: ListView(scrollDirection: Axis.horizontal, children: [
-        for (final c in chips)
+      const SectionHeader('Videos'),
+      SizedBox(height: 40, child: ListView(scrollDirection: Axis.horizontal, children: [
+        for (final t in fvExploreTabs.entries)
           Padding(padding: const EdgeInsets.only(right: 8), child: ChoiceChip(
-            label: Text(c == 'More' && moreSelected ? _cat! : c),
-            selected: c == 'All' ? _cat == null : c == 'More' ? moreSelected : c == _cat,
+            label: Text(t.value),
+            selected: t.key == _tab,
             showCheckmark: false,
-            onSelected: (_) => _pickCategory(c),
+            onSelected: (_) => _pickTab(t.key),
           )),
       ])),
       const SizedBox(height: 12),
@@ -120,7 +121,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     final List<Widget> feed;
     if (_error && _posts.isEmpty) {
       feed = [Padding(padding: const EdgeInsets.only(top: 24), child: Center(child: Column(children: [
-        const Text('Could not load posts.', style: TextStyle(color: C.muted)),
+        const Text('Could not load videos.', style: TextStyle(color: C.muted)),
         TextButton(onPressed: _reload, child: const Text('Retry')),
       ])))];
     } else if (_loading && _posts.isEmpty) {
@@ -129,8 +130,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
       feed = const [Padding(padding: EdgeInsets.symmetric(vertical: 32), child: Column(children: [
         Icon(Icons.movie_outlined, size: 48, color: C.muted),
         SizedBox(height: 8),
-        Text('Nothing here yet', style: TextStyle(fontWeight: FontWeight.w600)),
-        Text('New posts from channels will show up here.', style: TextStyle(color: C.muted)),
+        Text('No videos here yet', style: TextStyle(fontWeight: FontWeight.w600)),
+        Text('Check back later.', style: TextStyle(color: C.muted)),
       ]))];
     } else {
       final queue = [for (final x in _posts) x['id'] as String];
@@ -242,11 +243,12 @@ class PosterTile extends StatelessWidget {
     final items = (post['post_items'] as List?) ?? const [];
     final thumb = items.isEmpty ? null : (items.first as Map)['thumbnail_key'] as String?;
     final premium = items.any((e) => (e as Map)['is_premium'] == true);
+    final seconds = items.isEmpty ? null : (items.first as Map)['duration_s'] as int?;
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PostScreen(postId: post['id'] as String, queue: queue))),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(20), child: MediaThumb(keyName: thumb, premium: premium))),
+        Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(20), child: MediaThumb(keyName: thumb, premium: premium, seconds: seconds))),
         const SizedBox(height: 6),
         Text(post['title'] as String? ?? '', maxLines: 2, overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, height: 1.2)),
@@ -291,56 +293,97 @@ class PostCard extends StatelessWidget {
 }
 
 class MediaThumb extends StatelessWidget {
-  const MediaThumb({super.key, required this.keyName, this.premium = false});
+  const MediaThumb({super.key, required this.keyName, this.premium = false, this.seconds});
+  /// A Flixvault image URL (https) or a key in the `media` bucket.
   final String? keyName;
   final bool premium;
+  final int? seconds;
   @override
   Widget build(BuildContext context) {
     final api = AppScope.read(context).api;
+    final direct = fvImage(keyName);
     return Stack(fit: StackFit.expand, children: [
       Container(color: C.surface2, child: const Icon(Icons.play_circle_outline, size: 48, color: C.muted)),
-      if (keyName != null)
+      if (direct != null)
+        Image.network(direct, fit: BoxFit.cover, errorBuilder: (_, _, _) => const SizedBox())
+      else if (keyName != null)
         FutureBuilder<String?>(
           future: api.signedUrl('media', keyName),
           builder: (_, s) => s.data == null ? const SizedBox() : Image.network(s.data!, fit: BoxFit.cover, errorBuilder: (_, _, _) => const SizedBox()),
         ),
       if (premium) const Positioned(top: 8, left: 8, child: PremiumBadge()),
+      if (seconds != null && seconds! > 0)
+        Positioned(right: 6, bottom: 6, child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(color: C.navy.withValues(alpha: .8), borderRadius: BorderRadius.circular(6)),
+          child: Text(clock(Duration(seconds: seconds!)), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+        )),
     ]);
   }
 }
 
-/// Search posts by title (opened from Explore and Feed).
+/// Search Flixvault videos and channels (opened from Explore and Feed).
 Future<void> openSearch(BuildContext context) async {
   final q = await showSearch<String?>(context: context, delegate: _Search());
   if (q == null || q.isEmpty || !context.mounted) return;
+  AppScope.read(context).measurement.track('SearchUsed');
   await Navigator.push(context, MaterialPageRoute(builder: (_) => SearchResultsScreen(query: q)));
 }
 
-class SearchResultsScreen extends StatelessWidget {
+class SearchResultsScreen extends StatefulWidget {
   const SearchResultsScreen({super.key, required this.query});
   final String query;
   @override
+  State<SearchResultsScreen> createState() => _SearchResultsScreenState();
+}
+
+class _SearchResultsScreenState extends State<SearchResultsScreen> {
+  int _tab = 0; // Videos | Channels
+  Future<List<Json>>? _videos, _channels;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final api = AppScope.read(context).api;
+    _videos ??= api.fvExplore(search: widget.query);
+    _channels ??= api.fvChannels(search: widget.query);
+  }
+
+  @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text('“$query”', overflow: TextOverflow.ellipsis)),
-        body: FutureBuilder<List<Json>>(
-          future: AppScope.read(context).api.latestPosts(query: query),
-          builder: (_, s) {
-            if (s.hasError) return const EmptyState(icon: Icons.cloud_off, title: 'Search failed');
-            if (!s.hasData) return const SkeletonList(count: 3);
-            if (s.data!.isEmpty) return const EmptyState(icon: Icons.search_off, title: 'No results', message: 'Try a different word.');
-            return ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: s.data!.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 12),
-              itemBuilder: (_, i) => PostCard(post: s.data![i], queue: [for (final x in s.data!) x['id'] as String]),
-            );
-          },
-        ),
+        appBar: AppBar(title: Text('“${widget.query}”', overflow: TextOverflow.ellipsis)),
+        body: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: PillTabs(labels: const ['Videos', 'Channels'], index: _tab, onChanged: (i) => setState(() => _tab = i)),
+          ),
+          Expanded(child: FutureBuilder<List<Json>>(
+            key: ValueKey(_tab),
+            future: _tab == 0 ? _videos : _channels,
+            builder: (_, s) {
+              if (s.hasError) return const EmptyState(icon: Icons.cloud_off, title: 'Search failed');
+              if (!s.hasData) return const SkeletonList(count: 3);
+              if (s.data!.isEmpty) {
+                return EmptyState(icon: Icons.search_off, title: _tab == 0 ? 'No matching videos' : 'No matching channels',
+                    message: 'Try a different word.');
+              }
+              final rows = s.data!;
+              return ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                itemCount: rows.length,
+                separatorBuilder: (_, _) => SizedBox(height: _tab == 0 ? 12 : 10),
+                itemBuilder: (_, i) => _tab == 0
+                    ? PostCard(post: rows[i], queue: [for (final x in rows) x['id'] as String])
+                    : ChannelTile(channel: rows[i]),
+              );
+            },
+          )),
+        ]),
       );
 }
 
 class _Search extends SearchDelegate<String?> {
-  _Search() : super(searchFieldLabel: 'Search posts');
+  _Search() : super(searchFieldLabel: 'Search videos and channels');
   @override
   List<Widget> buildActions(BuildContext context) => [IconButton(tooltip: 'Clear', icon: const Icon(Icons.clear), onPressed: () => query = '')];
   @override

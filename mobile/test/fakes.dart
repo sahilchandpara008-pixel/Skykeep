@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:skykeep/app_state.dart';
 import 'package:skykeep/main.dart';
 import 'package:skykeep/services/api.dart';
+import 'package:skykeep/services/flixvault.dart';
 import 'package:skykeep/services/play_integrity.dart';
 import 'package:skykeep/services/thumbs.dart';
 import 'package:skykeep/services/upi.dart';
@@ -85,15 +86,6 @@ class FakeApi extends Api {
   @override
   Future<List<Json>> paymentHistory() async => const [];
   @override
-  Future<List<Json>> latestPosts({int page = 0, String? category, String? query}) async => page == 0 ? posts : const [];
-  @override
-  Future<List<Json>> suggestedPosts(String excludePostId, {String? excludeChannelId, int limit = 10}) async =>
-      [for (final p in posts) p].where((p) => p['id'] != excludePostId).toList();
-  @override
-  Future<List<String>> categories() async => const ['Tech', 'Travel'];
-  @override
-  Future<List<Json>> channels(String tab) async => tab == 'discover' ? channelsList : const [];
-  @override
   Future<String?> signedUrl(String bucket, String? key, {int seconds = 3600, bool download = false}) async => null;
   @override
   Future<List<Json>> cloudFolders(String? parentId) async => const [];
@@ -104,8 +96,61 @@ class FakeApi extends Api {
   List<Json> recentFilesList = const [];
   @override
   Future<List<Json>> recentFiles({int limit = 3}) async => recentFilesList;
+
+  // ---------- Flixvault ----------
+  final followed = <String>{};
+  final blocked = <String>{};
+  final reports = <List<String>>[];
+  final played = <List<String>>[];
+  Json? postValue;
+  FvChannelPage? channelPageValue;
+  String? playError; // e.g. premium_required
+  List<String> exploreTabs = [];
+
+  List<Json> get _visible => posts.where((p) => !blocked.contains(p['channel_id'] ?? (p['channels'] as Map?)?['id'])).toList();
   @override
-  Future<List<Json>> followingPosts({int page = 0}) async => guest || page > 0 ? const [] : posts;
+  Future<List<Json>> fvExplore({String tab = 'all', int offset = 0, String? search}) async {
+    exploreTabs.add(tab);
+    if (offset > 0) return const [];
+    final q = search?.toLowerCase() ?? '';
+    return _visible.where((p) => q.isEmpty || (p['title'] as String? ?? '').toLowerCase().contains(q)).toList();
+  }
+
+  @override
+  Future<List<Json>> fvFollowing() async => guest ? const [] : _visible;
+  @override
+  Future<List<Json>> fvChannels({String sort = 'trending', String? search}) async {
+    final q = search?.toLowerCase() ?? '';
+    return channelsList.where((c) => !blocked.contains(c['id']) && (q.isEmpty || (c['name'] as String).toLowerCase().contains(q))).toList();
+  }
+
+  @override
+  Future<FvChannelPage?> fvChannelPage(String id, {String? before}) async => channelPageValue;
+  @override
+  Future<Json?> fvPost(String id) async => postValue;
+  @override
+  Future<String> fvPlay(String itemId, {required String kind}) async {
+    played.add([itemId, kind]);
+    if (playError != null && kind == 'video') throw FlixvaultError(playError!);
+    return 'https://video.example/$itemId/$kind.m3u8';
+  }
+
+  @override
+  Future<Set<String>> fvFollowedIds() async => {...followed};
+  @override
+  Future<void> fvSetFollowing(String channelId, bool follow) async => follow ? followed.add(channelId) : followed.remove(channelId);
+  @override
+  Future<void> fvBlock(String channelId) async {
+    blocked.add(channelId);
+    followed.remove(channelId);
+  }
+
+  @override
+  Future<void> fvUnblock(String channelId) async => blocked.remove(channelId);
+  @override
+  Future<List<Json>> fvBlockedChannels() async => [for (final id in blocked) {'id': id, 'name': 'Blocked $id', 'icon_url': null}];
+  @override
+  Future<void> fvReport(String postId, String reason) async => reports.add([postId, reason]);
 
   // ---------- creator upload ----------
   final uploads = <Map<String, Object?>>[];

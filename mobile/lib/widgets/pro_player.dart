@@ -35,6 +35,9 @@ class ProPlayer extends StatefulWidget {
     this.onPrevious,
     this.onUpgrade,
     this.title,
+    this.resolveUrl,
+    this.hls = false,
+    this.autoPlay = false,
   });
 
   final String itemId;
@@ -49,6 +52,16 @@ class ProPlayer extends StatefulWidget {
   final bool trailerOnly;
   final VoidCallback? onNext, onPrevious, onUpgrade;
   final String? title;
+
+  /// Where the playable link comes from. Default: a signed URL for [storageKey] in the `media` bucket.
+  /// Flixvault videos pass a resolver that asks the flixvault-feed function (short-lived HLS links).
+  final Future<String?> Function(String key, {required bool refresh})? resolveUrl;
+
+  /// The links are HLS playlists.
+  final bool hls;
+
+  /// Start playing as soon as the video is ready (opened from a play button).
+  final bool autoPlay;
 
   @override
   State<ProPlayer> createState() => _ProPlayerState();
@@ -87,7 +100,7 @@ class _ProPlayerState extends State<ProPlayer> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _lastOrientation = _deviceOrientation();
-      _open();
+      _open(autoPlay: widget.autoPlay);
     });
   }
 
@@ -143,15 +156,22 @@ class _ProPlayerState extends State<ProPlayer> with WidgetsBindingObserver {
   Future<void> _openOnce({required bool refresh, required bool autoPlay}) async {
     final app = AppScope.read(context);
     final key = _keys[_stage];
-    if (refresh) app.api.forgetSigned('media', key);
-    final url = await app.api.signedUrl('media', key);
+    String? url;
+    if (widget.resolveUrl != null) {
+      try {
+        url = await widget.resolveUrl!(key, refresh: refresh);
+      } catch (_) {}
+    } else {
+      if (refresh) app.api.forgetSigned('media', key);
+      url = await app.api.signedUrl('media', key);
+    }
     if (!mounted) return;
     if (url == null) return _set(() => _failed = true);
     // a URL refresh continues where we were; a new stage starts at its own saved position (full video) or the start (trailer)
     final resumeAt = Duration(milliseconds: refresh && _c != null ? _c!.value.position.inMilliseconds
         : (_countsResume ? app.prefs.getInt(_posKey) : null) ?? 0);
     final old = _c;
-    final c = VideoPlayerController.networkUrl(Uri.parse(url));
+    final c = VideoPlayerController.networkUrl(Uri.parse(url), formatHint: widget.hls ? VideoFormat.hls : null);
     try {
       await c.initialize();
       if (resumeAt > Duration.zero && resumeAt < c.value.duration) await c.seekTo(resumeAt);

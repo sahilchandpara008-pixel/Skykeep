@@ -1,13 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../config.dart';
+import '../services/push.dart';
 import '../theme.dart';
 
-/// First launch: Terms & Privacy consent, then Android's notification permission prompt.
-/// Shown once per install; the guest account is already created in the background.
+/// First launch: Terms & Privacy consent with the optional measurement choice (analytics and Meta ad
+/// measurement), then Android's notification permission prompt. Shown once per install; the guest account is
+/// already created in the background. The choice can be changed in Profile › Settings › Measurement preferences.
 class WelcomeGate extends StatefulWidget {
   const WelcomeGate({super.key, required this.child});
   final Widget child;
@@ -34,11 +38,14 @@ class _WelcomeGateState extends State<WelcomeGate> {
     _accepted ??= AppScope.read(context).prefs.getBool(WelcomeGate.prefKey) ?? false;
   }
 
-  Future<void> _agree() async {
-    await AppScope.read(context).prefs.setBool(WelcomeGate.prefKey, true);
+  Future<void> _agree(bool allowMeasurement) async {
+    final app = AppScope.read(context);
+    await app.prefs.setBool(WelcomeGate.prefKey, true);
     if (!mounted) return;
     setState(() => _accepted = true);
+    unawaited(app.measurement.save(analytics: allowMeasurement, advertising: allowMeasurement));
     await WelcomeGate.askNotifications();
+    unawaited(Push.register());
   }
 
   @override
@@ -47,7 +54,9 @@ class _WelcomeGateState extends State<WelcomeGate> {
 
 class ConsentScreen extends StatelessWidget {
   const ConsentScreen({super.key, required this.onAgree});
-  final VoidCallback onAgree;
+
+  /// true: "Agree and continue" (also allows optional measurement); false: terms only.
+  final void Function(bool allowMeasurement) onAgree;
 
   static void _open(String path) => launchUrl(Uri.parse('${Config.websiteUrl}$path'), mode: LaunchMode.externalApplication);
 
@@ -71,14 +80,19 @@ class ConsentScreen extends StatelessWidget {
               const Text(
                   'Welcome to ${Config.appName}. By using this app, you acknowledge that you understand how we collect, use and '
                   'protect your personal data, as well as your rights and responsibilities as a user. '
-                  'Please review and accept our Privacy Policy and Terms & Conditions.',
+                  'Please review and accept our Privacy Policy and Terms & Conditions. Either button accepts the terms. '
+                  '"Agree and continue" also allows optional app analytics and ad measurement with Meta (app activity, '
+                  'a random install ID, the advertising ID and basic device information). You can change this anytime in '
+                  'Profile › Settings › Measurement preferences.',
                   textAlign: TextAlign.center, style: TextStyle(color: C.muted, height: 1.45)),
               Wrap(alignment: WrapAlignment.center, children: [
                 TextButton(onPressed: () => _open('/privacy'), child: const Text('Privacy Policy')),
                 TextButton(onPressed: () => _open('/terms'), child: const Text('Terms & Conditions')),
               ]),
               const SizedBox(height: 8),
-              GradientButton(label: 'Agree and continue', onPressed: onAgree),
+              GradientButton(label: 'Agree and continue', onPressed: () => onAgree(true)),
+              const SizedBox(height: 8),
+              OutlinedButton(onPressed: () => onAgree(false), child: const Text('Continue without optional sharing')),
             ]),
           )))),
         ),

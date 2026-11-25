@@ -26,7 +26,7 @@ void main() {
     expect(find.text('For You'), findsOneWidget);
   });
 
-  testWidgets('Explore: greeting, cloud summary, categories, recent files, posts', (t) async {
+  testWidgets('Explore: greeting, cloud summary, Flixvault tabs, recent files, videos', (t) async {
     final api = FakeApi(status: statusJson(quota: 16106127360, used: 1073741824), posts: _posts)
       ..recentFilesList = [{'id': 'f1', 'name': 'Vacation.jpg', 'mime': 'image/jpeg', 'size_bytes': 2400000,
         'created_at': DateTime.now().toIso8601String()}];
@@ -35,9 +35,13 @@ void main() {
     expect(find.text('Upload files'), findsOneWidget);
     expect(find.text('Vacation.jpg'), findsOneWidget);
     expect(find.widgetWithText(ChoiceChip, 'All'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'Tech'), findsOneWidget); // chips come from the channels' own categories
-    expect(find.widgetWithText(ChoiceChip, 'Travel'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'Entertainment'), findsNothing);
+    for (final c in ['Latest', 'Popular', 'Most watched']) {
+      expect(find.widgetWithText(ChoiceChip, c), findsOneWidget);
+    }
+    expect(find.widgetWithText(ChoiceChip, 'Tech'), findsNothing); // no more SkyKeep channel categories
+    await t.tap(find.widgetWithText(ChoiceChip, 'Popular'));
+    await t.pumpAndSettle();
+    expect(api.exploreTabs.last, 'popular');
     expect(find.text('Suggested channels'), findsNothing);
     expect(find.text('Sunrise over the hills'), findsOneWidget);
   });
@@ -63,13 +67,15 @@ void main() {
     expect(find.text('Log in to follow channels'), findsOneWidget);
   });
 
-  testWidgets('Channels: Discover list has Join buttons and a create button', (t) async {
+  testWidgets('Channels: Flixvault Discover list has Join buttons, no create button', (t) async {
     await pumpApp(t, FakeApi(channelsList: const [{'id': 'c1', 'name': 'Tech World', 'members_count': 245000, 'category': 'Technology', 'review_status': 'approved'}]),
         const ChannelsScreen());
     expect(find.text('Tech World'), findsWidgets);
     expect(find.text('245K members · Technology'), findsWidgets);
     expect(find.text('Join'), findsWidgets);
-    expect(find.text('Create your channel'), findsOneWidget);
+    expect(find.text('Create your channel'), findsNothing);
+    expect(find.text('Discover'), findsOneWidget);
+    expect(find.text('Joined'), findsOneWidget);
   });
 
   testWidgets('Cloud: storage ring with percentage', (t) async {

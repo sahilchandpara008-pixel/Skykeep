@@ -11,6 +11,7 @@ import 'channels.dart';
 import 'home.dart' show HomeShellState;
 import 'checkout.dart';
 import 'login_sheet.dart';
+import 'measurement_preferences.dart';
 import 'premium.dart';
 
 /// Round avatar in the top-right corner of every tab → opens the Profile page.
@@ -34,7 +35,7 @@ class ProfileButton extends StatelessWidget {
   }
 }
 
-/// Profile page: account card, "Link your email" (guests), Go Premium / My cloud, payment history, my channels.
+/// Profile page: account card, "Link your email" (guests), Go Premium / My cloud, payment history, joined / blocked channels.
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
@@ -99,20 +100,25 @@ class ProfileScreen extends StatelessWidget {
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentHistoryScreen())),
             )),
           ],
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Row(children: [
-              const Expanded(child: Text('My Channels', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700))),
-              TextButton(onPressed: () => openChannelForm(context), child: const Text('Add Channel')),
-            ]),
+          const Padding(
+            padding: EdgeInsets.only(top: 16, bottom: 8),
+            child: Text('My Channels', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
           ),
-          Card(child: ListTile(
-            leading: const Icon(Icons.hub_outlined, color: C.primary),
-            title: const Text('See my channels'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
-                appBar: AppBar(title: const Text('My channels')), body: const ChannelList(tab: 'mine')))),
-          )),
+          Card(child: Column(children: [
+            ListTile(
+              leading: const Icon(Icons.hub_outlined, color: C.primary),
+              title: const Text('Joined channels'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChannelsScreen(joinedOnly: true))),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.block, color: C.primary),
+              title: const Text('Blocked channels'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => openBlockedChannels(context),
+            ),
+          ])),
         ]),
       ),
     );
@@ -272,6 +278,14 @@ class SettingsScreen extends StatelessWidget {
               Expanded(child: SizedBox(height: 72, child: policy(pair[1].$1, pair[1].$2))),
             ]),
           ),
+          const SizedBox(height: 8),
+          Card(child: ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined, color: C.primary),
+            title: const Text('Measurement preferences'),
+            subtitle: const Text('Optional analytics and Meta ad measurement'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MeasurementPreferencesScreen())),
+          )),
           const SizedBox(height: 8),
           TextButton(onPressed: () => launchUrl(Uri.parse('mailto:${Config.supportEmail}')), child: const Text('Contact support')),
           TextButton(onPressed: () => launchUrl(Uri.parse('${Config.websiteUrl}/report-content'), mode: LaunchMode.externalApplication),

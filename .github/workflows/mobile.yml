@@ -54,7 +54,9 @@ jobs:
     permissions: { contents: write } # publish the "latest" release with the APK/AAB
     defaults: { run: { working-directory: mobile } }
     env:
-      DEFINES: --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} --dart-define=SUPABASE_PUBLISHABLE_KEY=${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      # META_APP_ID / META_CLIENT_TOKEN are public build values (repository variables); empty = Meta SDK off.
+      # FIREBASE_PLAY_APP_ID: the Firebase app id of com.skykeep.play once it exists (empty = no push in the Play build).
+      DEFINES: --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} --dart-define=SUPABASE_PUBLISHABLE_KEY=${{ secrets.SUPABASE_PUBLISHABLE_KEY }} --dart-define=META_APP_ID=${{ vars.META_APP_ID }} --dart-define=META_CLIENT_TOKEN=${{ vars.META_CLIENT_TOKEN }} --dart-define=FIREBASE_PLAY_APP_ID=${{ vars.FIREBASE_PLAY_APP_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -88,13 +90,14 @@ jobs:
           DEFINES="$DEFINES --build-number=$((100 + ${{ github.run_number }}))"
           flutter build apk --release --flavor direct $DEFINES
           cp build/app/outputs/flutter-apk/app-direct-release.apk out/SkyKeep.apk
-          check_manifest() { # merged-manifest check: package, callback scheme, no AD_ID
+          check_manifest() { # merged-manifest check: package, callback scheme, Meta SDK does not auto-start
             m=$(find build/app/intermediates -path "*$1*" -name AndroidManifest.xml | grep -i merged | head -1)
             echo "checking $m"
             grep -q "package=\"$2\"" "$m"
             grep -q "android:scheme=\"$2\"" "$m"
             grep -q 'android:host="login-callback"' "$m"
-            ! grep -q 'com.google.android.gms.permission.AD_ID' "$m"
+            grep -q 'com.facebook.sdk.AutoInitEnabled' "$m"
+            ! grep -q 'com.facebook.internal.FacebookInitProvider' "$m"
           }
           check_manifest directRelease com.skykeep.app
           flutter build apk --release --flavor direct $DEFINES \
