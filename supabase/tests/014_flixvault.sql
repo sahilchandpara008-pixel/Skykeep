@@ -85,14 +85,16 @@ select is((select array_agg(name order by name) from flixvault_channels), array[
 select is((select count(*)::int from flixvault_posts where audience = 'ads'), 0, 'organic: ads posts hidden');
 reset role;
 
-select tests.as_user('00000000-0000-0000-0000-0000000014a3');   -- ads guest: no ads access, not organic
-select is((select array_agg(name order by name) from flixvault_channels), array['Alpha'], 'ads guest: audience=all only');
+select tests.as_user('00000000-0000-0000-0000-0000000014a3');   -- ads guest (not logged in yet)
+select is(fv_audience(), 'ads', 'ads guest asks Flixvault as ads');
+select is((select array_agg(name order by name) from flixvault_channels), array['Alpha','Bravo'], 'ads guest: all + ads channels, like Flixvault');
+select is((select count(*)::int from flixvault_posts where audience = 'organic'), 0, 'ads guest: organic posts hidden');
 reset role;
 
 update profiles set ads_access_status = 'approved' where id = '00000000-0000-0000-0000-0000000014a2';
 update app_mode set free_mode = true where true;
 select tests.as_user('00000000-0000-0000-0000-0000000014a2');
-select is((select count(*)::int from flixvault_channels), 3, 'approved organic (free mode): ads channels too');
+select is((select array_agg(audience order by audience) from flixvault_channels), array['ads','all'], 'approved organic (full access) is treated as ads, like Puffle');
 reset role;
 update profiles set ads_access_status = 'none' where id = '00000000-0000-0000-0000-0000000014a2';
 update app_mode set free_mode = false where true;

@@ -2,7 +2,7 @@
 //
 // The app calls it with its session (guest or member). It:
 //   1. checks the SkyKeep user (JWT) and reads my_status from SkyKeep's own database:
-//      audience = has_ads_access ? 'ads' : 'organic';  premium = is_premium (SkyKeep's has_full_access:
+//      audience = fv_audience() (same split as Flixvault/Puffle: install source ads, or full access => 'ads');  premium = is_premium (SkyKeep's has_full_access:
 //      paid mode → active plan, free mode → full access);
 //   2. browsing reads SkyKeep's copy (flixvault_* tables, policies apply SkyKeep's rules);
 //   3. play: the item must be visible to this user in the copy, then Flixvault's partner-feed "play" signs a
@@ -66,7 +66,8 @@ Deno.serve(async (req) => {
   const { data: st, error: stError } = await sb.rpc('my_status');
   if (stError || !st) return json({ error: 'status unavailable' }, 503);
   const status = st as Status;
-  const audience = status.has_ads_access ? 'ads' : 'organic';
+  const { data: aud } = await sb.rpc('fv_audience');
+  const audience = aud === 'ads' ? 'ads' : 'organic';
   const premium = status.can_play_premium === true || status.is_premium === true;
 
   let body: Record<string, unknown>;
