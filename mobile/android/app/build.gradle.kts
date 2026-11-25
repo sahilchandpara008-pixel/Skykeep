@@ -70,6 +70,11 @@ kotlin {
 dependencies {
     // QR fallback when no UPI app opens (same upi://pay URI)
     implementation("com.google.zxing:core:3.5.3")
+    // Google Play install referrer (Meta ad installs from Play count as ads; the server decides).
+    implementation("com.android.installreferrer:installreferrer:2.2")
+    // Meta SDK (anonymous id) + advertising ID, both started only after the user allowed ad measurement.
+    implementation("com.facebook.android:facebook-core:18.3.0")
+    implementation("com.google.android.gms:play-services-ads-identifier:18.2.0")
     testImplementation("junit:junit:4.13.2")
     // Play build only: Play Integrity (15 GB free cloud). No billing library — the Play build never sells.
     "playImplementation"("com.google.android.play:integrity:1.4.0")

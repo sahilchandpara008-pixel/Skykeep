@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../app_state.dart';
-import '../config.dart';
 import '../services/api.dart';
+import '../services/flixvault.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import 'channels.dart' show ChannelIcon, ChannelPage;
@@ -12,7 +12,7 @@ import 'login_sheet.dart';
 import 'profile.dart' show ProfileButton;
 import 'post.dart';
 
-/// Feed tab: Following (joined channels) / For You (latest from everyone the server lets you see).
+/// Feed tab: Following (Flixvault channels the user follows) / For You (newest Flixvault videos the server lets them see).
 class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
   @override
@@ -22,7 +22,6 @@ class FeedScreen extends StatefulWidget {
 class _FeedScreenState extends State<FeedScreen> {
   int _tab = 1; // For You first: works for guests too
   final _posts = <Json>[];
-  int _page = 0;
   bool _loading = true, _more = true, _error = false;
   final _scroll = ScrollController();
 
@@ -35,6 +34,20 @@ class _FeedScreenState extends State<FeedScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
   }
 
+  String? _accessKey;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Login, ads / organic or Premium changed: the server shows different videos, so load again.
+    final key = AppScope.of(context).accessKey;
+    final previous = _accessKey;
+    _accessKey = key;
+    if (previous != null && previous != key) {
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted && _accessKey == key) _reload(); });
+    }
+  }
+
   @override
   void dispose() {
     _scroll.dispose();
@@ -42,7 +55,7 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 
   Future<void> _reload() async {
-    setState(() { _posts.clear(); _page = 0; _more = true; _error = false; _loading = true; });
+    setState(() { _posts.clear(); _more = true; _error = false; _loading = true; });
     await _load(force: true);
   }
 
@@ -51,9 +64,11 @@ class _FeedScreenState extends State<FeedScreen> {
     setState(() => _loading = true);
     try {
       final api = AppScope.read(context).api;
-      final xs = _tab == 0 ? await api.followingPosts(page: _page) : await api.latestPosts(page: _page);
+      final following = _tab == 0;
+      final xs = following ? await api.fvFollowing() : await api.fvExplore(tab: 'latest', offset: _posts.length);
       if (!mounted) return;
-      setState(() { _posts.addAll(xs); _page++; _more = xs.length == Api.pageSize; });
+      final seen = {for (final p in _posts) p['id']};
+      setState(() { _posts.addAll(xs.where((p) => !seen.contains(p['id']))); _more = !following && xs.length >= fvPageSize; });
     } catch (_) {
       if (mounted) setState(() => _error = true);
     } finally {
@@ -71,11 +86,11 @@ class _FeedScreenState extends State<FeedScreen> {
       body = const SkeletonList(count: 3);
     } else if (_posts.isEmpty) {
       body = _tab == 0
-          ? EmptyState(icon: Icons.dynamic_feed_outlined, title: guest ? 'Log in to follow channels' : 'Nothing from your channels yet',
-              message: 'Join channels in the Channels tab and their new posts show up here.',
+          ? EmptyState(icon: Icons.dynamic_feed_outlined, title: guest ? 'Log in to follow channels' : 'Your feed is empty',
+              message: 'Join channels in the Channels tab and their new videos show up here.',
               action: guest ? FilledButton(onPressed: () => requireMember(context, reason: 'Log in to follow channels').then((_) => _reload()),
                   child: const Text('Log in')) : null)
-          : const EmptyState(icon: Icons.movie_outlined, title: 'Nothing here yet', message: 'New posts from channels will show up here.');
+          : const EmptyState(icon: Icons.movie_outlined, title: 'No videos here yet', message: 'Check back later.');
     } else {
       body = ListView.separated(
         controller: _scroll,
@@ -112,6 +127,7 @@ class FeedCard extends StatelessWidget {
     final items = (post['post_items'] as List?) ?? const [];
     final thumb = items.isEmpty ? null : (items.first as Map)['thumbnail_key'] as String?;
     final premium = items.any((e) => (e as Map)['is_premium'] == true);
+    final seconds = items.isEmpty ? null : (items.first as Map)['duration_s'] as int?;
     final channel = post['channels'] as Map?;
     final id = post['id'] as String;
     void open() => Navigator.push(context, MaterialPageRoute(builder: (_) => PostScreen(postId: id, queue: queue)));
@@ -137,7 +153,7 @@ class FeedCard extends StatelessWidget {
         InkWell(onTap: open, child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: ClipRRect(borderRadius: BorderRadius.circular(14),
-              child: AspectRatio(aspectRatio: 16 / 9, child: MediaThumb(keyName: thumb, premium: premium))),
+              child: AspectRatio(aspectRatio: 16 / 9, child: MediaThumb(keyName: thumb, premium: premium, seconds: seconds))),
         )),
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 10, 4, 6),
@@ -145,7 +161,7 @@ class FeedCard extends StatelessWidget {
             Expanded(child: Text(post['title'] as String? ?? '', maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15))),
             IconButton(tooltip: 'Share', icon: const Icon(Icons.share_outlined),
-                onPressed: () => SharePlus.instance.share(ShareParams(text: '${post['title'] ?? Config.appName} ${Config.websiteUrl}/p/$id'))),
+                onPressed: () => SharePlus.instance.share(ShareParams(text: shareText(post)))),
           ]),
         ),
       ]),

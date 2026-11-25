@@ -39,6 +39,14 @@ class MainActivity : FlutterActivity() {
                 result.success(mapOf("no_app" to true))
             }
         }
+        // Google Play install referrer (first open; the server classifies Meta ad installs).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "app/install-referrer").setMethodCallHandler { call, result ->
+            if (call.method == "get") InstallReferrer.read(this, result) else result.notImplemented()
+        }
+        // Meta SDK + advertising ID: only after the user allowed ad measurement.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "app/meta").setMethodCallHandler { call, result ->
+            MetaIds.handle(this, call.method, call.argument<String>("app_id"), call.argument<String>("client_token"), result)
+        }
         PlayChannel.register(this, flutterEngine)
         ThumbChannel.register(flutterEngine)
         // first launch: ask for notifications (Android 13+ shows the system "Allow … to send you notifications?")

@@ -3,11 +3,13 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config.dart';
+import 'flixvault.dart';
 
 typedef Json = Map<String, dynamic>;
 
@@ -32,13 +34,31 @@ class Api {
     final secret = prefs.getString('install_secret') ?? token(48);
     await prefs.setString('install_id', id);
     await prefs.setString('install_secret', secret);
+    // Google Play installs: the Play install referrer (a Meta ad install carries utm_source=apps.facebook.com /
+    // utm_source=meta; the server classifies it as ads). Sideloaded APKs: the referrer baked into the ads APK.
+    final cached = prefs.getString('install_referrer');
+    final play = cached != null ? Json.from(jsonDecode(cached) as Map) : await readPlayReferrer();
+    await prefs.setString('install_referrer', jsonEncode(play));
+    final fromPlay = play['status'] == 'play_ok';
     await db.rpc('record_install', params: {
       'p_install_id': id,
-      'p_referrer_status': Config.apkReferrer.isEmpty ? 'none' : 'apk_define',
-      'p_raw_referrer': Config.apkReferrer,
+      'p_referrer_status': fromPlay ? 'play_ok' : Config.apkReferrer.isEmpty ? (play['status'] ?? 'none') : 'apk_define',
+      'p_raw_referrer': fromPlay ? (play['referrer'] ?? '') : Config.apkReferrer,
       'p_install_secret': secret,
     });
     await prefs.setBool('install_recorded', true);
+  }
+
+  static const _referrer = MethodChannel('app/install-referrer');
+
+  /// {status: play_ok | non_play | not_available, referrer, click_ts, install_ts}; never throws.
+  Future<Json> readPlayReferrer() async {
+    try {
+      final r = await _referrer.invokeMapMethod<String, dynamic>('get').timeout(const Duration(seconds: 6));
+      return Json.from(r ?? const {'status': 'not_available', 'referrer': ''});
+    } catch (_) {
+      return {'status': 'not_available', 'referrer': ''};
+    }
   }
 
   /// No session (first open was offline, or guest sign-in failed): try again as a guest.
@@ -127,38 +147,6 @@ class Api {
   }
 
   // ---------- content ----------
-  static const pageSize = 20;
-  Future<List<Json>> latestPosts({int page = 0, String? category, String? query}) async {
-    var q = db.from('posts').select(_postCols);
-    if (category != null) q = q.eq('channels.category', category);
-    if (query != null && query.isNotEmpty) q = q.ilike('title', '%$query%');
-    final blocked = await blockedChannelIds();
-    if (blocked.isNotEmpty) q = q.not('channel_id', 'in', '(${blocked.join(',')})');
-    return List<Json>.from(await q.order('created_at', ascending: false).range(page * pageSize, page * pageSize + pageSize - 1));
-  }
-
-  static const _postCols = 'id,title,description,created_at,channel_id,channels!inner(id,name,category,icon_url,members_count),post_items(thumbnail_key,is_premium)';
-
-  /// "More to watch" under a video: newest public posts from other channels, visible to the viewer
-  /// (RLS post_visible already enforces the organic / ads rules, so both kinds of user get suggestions).
-  Future<List<Json>> suggestedPosts(String excludePostId, {String? excludeChannelId, int limit = 10}) async {
-    var q = db.from('posts').select(_postCols).neq('id', excludePostId);
-    if (excludeChannelId != null) q = q.neq('channel_id', excludeChannelId);
-    final blocked = await blockedChannelIds();
-    if (blocked.isNotEmpty) q = q.not('channel_id', 'in', '(${blocked.join(',')})');
-    return List<Json>.from(await q.order('created_at', ascending: false).limit(limit));
-  }
-
-  /// Feed › Following: newest posts from channels the user joined.
-  Future<List<Json>> followingPosts({int page = 0}) async {
-    if (user == null || isGuest) return const [];
-    final joined = await db.from('channel_members').select('channel_id').eq('user_id', user!.id);
-    final ids = [for (final x in joined) x['channel_id'] as String];
-    if (ids.isEmpty) return const [];
-    return List<Json>.from(await db.from('posts').select(_postCols).inFilter('channel_id', ids)
-        .order('created_at', ascending: false).range(page * pageSize, page * pageSize + pageSize - 1));
-  }
-
   /// Explore › Recent files (members with cloud storage).
   Future<List<Json>> recentFiles({int limit = 3}) async {
     if (user == null || isGuest) return const [];
@@ -166,40 +154,6 @@ class Api {
         .order('created_at', ascending: false).limit(limit));
   }
 
-  Future<List<String>> categories() async {
-    final r = await db.from('channels').select('category').not('category', 'is', null).limit(200);
-    return {for (final c in r) c['category'] as String}.toList()..sort();
-  }
-
-  Future<List<String>> blockedChannelIds() async {
-    if (user == null) return const [];
-    final r = await db.from('blocked_channels').select('channel_id').eq('user_id', user!.id);
-    return [for (final x in r) x['channel_id'] as String];
-  }
-
-  /// tab: discover | joined | mine
-  Future<List<Json>> channels(String tab) async {
-    if (tab == 'mine') {
-      return List<Json>.from(await db.from('channels').select().eq('created_by', user!.id).order('created_at', ascending: false));
-    }
-    if (tab == 'joined') {
-      final r = await db.from('channel_members').select('channels(*)').eq('user_id', user!.id);
-      return [for (final x in r) if (x['channels'] != null) Json.from(x['channels'] as Map)];
-    }
-    return List<Json>.from(await db.from('channels').select().eq('review_status', 'approved').order('members_count', ascending: false).limit(100));
-  }
-
-  Future<Json?> channel(String id) async => await db.from('channels').select().eq('id', id).maybeSingle();
-  Future<bool> isMember(String channelId) async =>
-      (await db.from('channel_members').select('channel_id').eq('channel_id', channelId).eq('user_id', user!.id)).isNotEmpty;
-  Future<void> join(String channelId) => db.from('channel_members').insert({'channel_id': channelId, 'user_id': user!.id});
-  Future<void> leave(String channelId) => db.from('channel_members').delete().eq('channel_id', channelId).eq('user_id', user!.id);
-  Future<List<Json>> channelPosts(String channelId) async => List<Json>.from(await db
-      .from('posts')
-      .select('id,title,description,created_at,status,post_items(thumbnail_key,is_premium)')
-      .eq('channel_id', channelId)
-      .order('created_at', ascending: false)
-      .limit(100));
   Future<Json> saveChannel(Json row, {String? id}) async => id == null
       ? Json.from(await db.from('channels').insert(row).select().single())
       : Json.from(await db.from('channels').update(row).eq('id', id).select().single());
@@ -230,19 +184,6 @@ class Api {
 
   void forgetSigned(String bucket, String key) => _signed.removeWhere((k, _) => k.startsWith('$bucket/$key/'));
 
-  Future<Json?> post(String id) async =>
-      await db.from('posts').select('*, channels(id,name,icon_url,created_by), post_items(*)').eq('id', id).maybeSingle();
-
-  /// {key, kind: full|trailer|locked} from the server.
-  Future<Json?> playable(String itemId) async {
-    final r = await db.rpc('playable_key', params: {'p_item_id': itemId});
-    return r == null ? null : Json.from(r as Map);
-  }
-
-  Future<void> report(String type, String id, String reason, String? details) => db.rpc('report_content',
-      params: {'p_target_type': type, 'p_target_id': id, 'p_reason': reason, 'p_details': details});
-  Future<void> blockChannel(String channelId) =>
-      db.from('blocked_channels').upsert({'user_id': user!.id, 'channel_id': channelId});
 
   /// Creator upload: media → `media/<channel>/...`, optional thumbnail + trailer, then the post and its item.
   /// Images are their own thumbnail unless one is given; for videos the caller passes the thumbnail
@@ -270,6 +211,117 @@ class Api {
     await db.from('post_items').insert({'post_id': post['id'], 'media_key': key, 'thumbnail_key': thumbKey, 'trailer_key': trailerKey,
       'is_premium': premium, 'duration_s': durationS, 'mime': mime, 'size_bytes': bytes.length});
   }
+
+  // ---------- Flixvault (the only videos and channels users see; see services/flixvault.dart) ----------
+  Future<Object?> _fvRpc(String fn, [Map<String, dynamic>? params]) async => await db.rpc(fn, params: params);
+
+  /// Channels this user blocked (hidden everywhere).
+  Future<Set<String>> fvBlockedIds() async {
+    if (user == null) return {};
+    return {for (final r in await db.from('flixvault_blocks').select('channel_id')) r['channel_id'] as String};
+  }
+
+  /// tab: all | latest | popular | most_watched
+  Future<List<Json>> fvExplore({String tab = 'all', int offset = 0, String? search}) async {
+    final s = search?.trim() ?? '';
+    final r = await Future.wait([
+      _fvRpc('fv_explore', {'p_tab': fvExploreTabs.containsKey(tab) ? tab : 'all', 'p_offset': offset, 'p_limit': fvPageSize,
+        'p_search': s.isEmpty ? null : s}),
+      fvBlockedIds(),
+    ]);
+    final blocked = r[1] as Set<String>;
+    return fvPostRows(r[0]).where((p) => !blocked.contains(p['channel_id'])).toList();
+  }
+
+  /// Newest posts from the Flixvault channels this user follows (blocked channels already left out).
+  Future<List<Json>> fvFollowing() async {
+    if (user == null) return const [];
+    return fvPostRows(await _fvRpc('fv_following'));
+  }
+
+  /// sort: trending | latest | top
+  Future<List<Json>> fvChannels({String sort = 'trending', String? search}) async {
+    final s = search?.trim() ?? '';
+    final r = await Future.wait([
+      _fvRpc('fv_channels', {'p_sort': fvChannelSorts.containsKey(sort) ? sort : 'trending', 'p_search': s.isEmpty ? null : s}),
+      fvBlockedIds(),
+    ]);
+    final blocked = r[1] as Set<String>;
+    return [
+      for (final c in (r[0] as List? ?? const []))
+        if (!blocked.contains((c as Map)['id'])) fvChannelRow(Json.from(c)),
+    ];
+  }
+
+  /// The channel, 50 posts before [before] and its folders; null when this user may not see it.
+  Future<FvChannelPage?> fvChannelPage(String id, {String? before}) async {
+    final r = await _fvRpc('fv_channel', {'p_channel_id': id, 'p_before': before});
+    return r is Map && r['channel'] is Map ? fvChannelPageOf(Json.from(r)) : null;
+  }
+
+  Future<Json?> fvPost(String id) async {
+    final r = await _fvRpc('fv_post', {'p_post_id': id});
+    return r is Map ? fvPostRow(Json.from(r)) : null;
+  }
+
+  /// Short-lived HLS link from the flixvault-feed edge function. kind: video | preview.
+  /// Throws [FlixvaultError] (premium_required, not_allowed, login_required, ...).
+  Future<String> fvPlay(String itemId, {required String kind}) async {
+    final Object? data;
+    try {
+      data = (await db.functions.invoke('flixvault-feed', body: {'action': 'play', 'item_id': itemId, 'kind': kind})).data;
+    } on FunctionException catch (e) {
+      final d = e.details;
+      throw FlixvaultError(d is Map && d['error'] != null ? d['error'].toString() : 'unavailable');
+    }
+    if (data is! Map || data['error'] != null || data['url'] is! String) {
+      throw FlixvaultError(data is Map && data['error'] != null ? data['error'].toString() : 'unavailable');
+    }
+    return data['url'] as String;
+  }
+
+  Future<Set<String>> fvFollowedIds() async {
+    if (user == null) return {};
+    return {for (final r in await db.from('flixvault_follows').select('channel_id')) r['channel_id'] as String};
+  }
+
+  Future<void> fvSetFollowing(String channelId, bool follow) async {
+    if (follow) {
+      await db.from('flixvault_follows').upsert({'channel_id': channelId});
+    } else {
+      await db.from('flixvault_follows').delete().eq('channel_id', channelId);
+    }
+  }
+
+  Future<void> fvBlock(String channelId) async {
+    await db.from('flixvault_blocks').upsert({'channel_id': channelId});
+    await db.from('flixvault_follows').delete().eq('channel_id', channelId);
+  }
+
+  Future<void> fvUnblock(String channelId) => db.from('flixvault_blocks').delete().eq('channel_id', channelId);
+
+  /// Blocked channels with names, so they can be unblocked.
+  Future<List<Json>> fvBlockedChannels() async {
+    final ids = (await fvBlockedIds()).toList();
+    if (ids.isEmpty) return const [];
+    final rows = await db.from('flixvault_channels').select('id,name,icon_url').inFilter('id', ids).order('name');
+    final named = {for (final r in rows) r['id'] as String: Json.from(r)};
+    return [for (final id in ids) named[id] ?? {'id': id, 'name': 'Channel no longer available', 'icon_url': null}];
+  }
+
+  Future<void> fvReport(String postId, String reason) =>
+      db.from('flixvault_reports').insert({'post_id': postId, 'reason': reason});
+
+  // ---------- push / measurement (best effort; never block the app) ----------
+  Future<void> registerPushToken(String token) => db.rpc('register_push_token', params: {'p_token': token});
+  Future<void> pushOpened(String messageId) => db.rpc('push_opened', params: {'p_mid': messageId});
+  Future<void> setMeasurementPreferences(bool analytics, bool advertising, Json context) => db.rpc('set_measurement_preferences',
+      params: {'p_analytics': analytics, 'p_advertising': advertising, 'p_context': context});
+  Future<void> recordActivity(Json params) => db.rpc('record_activity', params: params);
+
+  /// Meta SDK anonymous id + advertising id (only after the user allowed ad measurement; the server checks again).
+  Future<void> recordAdIds(String installId, {String? fbAnonId, String? adId}) =>
+      db.rpc('record_ad_ids', params: {'p_install_id': installId, 'p_fb_anon_id': fbAnonId, 'p_ad_id': adId});
 
   // ---------- cloud ----------
   Future<List<Json>> cloudFolders(String? parentId) async {

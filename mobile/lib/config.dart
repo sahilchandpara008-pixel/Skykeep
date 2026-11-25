@@ -21,6 +21,23 @@ class Config {
       defaultValue: playStore ? 'com.skykeep.play' : 'com.skykeep.app');
   static String get authCallback => '$androidAppId://login-callback';
 
+  /// Meta (Facebook) app id + client token for the Meta SDK. Public build values (not secrets), passed by CI with
+  /// --dart-define=META_APP_ID=... --dart-define=META_CLIENT_TOKEN=... Empty: the Meta SDK never starts.
+  static const metaAppId = String.fromEnvironment('META_APP_ID');
+  static const metaClientToken = String.fromEnvironment('META_CLIENT_TOKEN');
+
+  /// SkyKeep's own Firebase project (skykeep-a345c) for push notifications. Public client values, not secrets.
+  static const firebaseApiKey = 'AIzaSyBFloSqXBySoPJ4u8CprmUXqbrFmmXQQ_k';
+  static const firebaseSenderId = '129670905169';
+  static const firebaseProjectId = 'skykeep-a345c';
+  static const firebaseStorageBucket = 'skykeep-a345c.firebasestorage.app';
+
+  /// Firebase app id per package. The Play package (com.skykeep.play) has no Firebase app yet: empty means push is
+  /// skipped in that build until it is set (here, or with --dart-define=FIREBASE_PLAY_APP_ID=...).
+  static const firebaseDirectAppId = '1:129670905169:android:867b5c8efcab4d6b2de770';
+  static const firebasePlayAppId = String.fromEnvironment('FIREBASE_PLAY_APP_ID');
+  static const firebaseAppId = playStore ? firebasePlayAppId : firebaseDirectAppId;
+
   static const jsChannel = '${appName}App';
   static const policyVersion = '2026-11';
 }

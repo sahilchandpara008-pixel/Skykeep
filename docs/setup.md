@@ -62,3 +62,20 @@ Admin › Payments › enter your UPI ID and payee name (exactly as your bank sh
 - GitHub secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
 - SHA-256 fingerprint (public; used by `/.well-known/assetlinks.json` via Vercel env `ANDROID_SIGNING_SHA256`):
   `2E:40:74:C2:F0:97:81:C2:7E:7D:A9:32:6D:9C:92:33:80:D0:17:D3:10:88:77:4D:D1:7C:61:A2:3E:56:ED:35`
+
+## App: Flixvault videos, push, Meta (v1.0.2)
+
+- **Videos/channels** in Explore, Feed, Channels and posts come only from Flixvault: RPCs `fv_explore`, `fv_channels`,
+  `fv_channel`, `fv_post`, `fv_following` (ads/organic decided by the server, `fv_audience`), play links from the
+  `flixvault-feed` edge function (`action: play`, `kind: video | preview`). Follows / blocks / reports:
+  `flixvault_follows`, `flixvault_blocks`, `flixvault_reports`; blocked list names from `flixvault_channels`.
+- **Push**: Firebase project `skykeep-a345c`; public client values live in `mobile/lib/config.dart` (no
+  google-services.json). The Play package `com.skykeep.play` has no Firebase app yet: set its app id in
+  `Config.firebasePlayAppId` or the repository variable `FIREBASE_PLAY_APP_ID`; until then the Play build skips push.
+  Tokens: `register_push_token`, taps: `push_opened`.
+- **Meta**: repository variables `META_APP_ID` and `META_CLIENT_TOKEN` (public build values). The Meta SDK and the
+  advertising ID start only after the user allows ad measurement (first-run consent or Profile › Settings ›
+  Measurement preferences): `set_measurement_preferences`, `record_activity`, `record_ad_ids`. The manifest now
+  declares `AD_ID` — update the Play Console data-safety / advertising-ID declaration.
+- **Installs**: Play installs send the Play install referrer to `record_install` (status `play_ok`); the server should
+  count `utm_source=apps.facebook.com` / `utm_source=meta` / facebook / instagram referrers as ads.

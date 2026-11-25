@@ -71,7 +71,9 @@ void main() {
       expect(find.text('My cloud'), findsOneWidget);
       expect(find.text('Log in or create account'), findsOneWidget);
       expect(find.text('My Channels'), findsOneWidget);
-      expect(find.text('Add Channel'), findsOneWidget);
+      expect(find.text('Joined channels'), findsOneWidget);
+      expect(find.text('Blocked channels'), findsOneWidget);
+      expect(find.text('Add Channel'), findsNothing); // SkyKeep's own creator channels are no longer shown
     });
 
     testWidgets('guest: account line is not a repeated "Guest"', (t) async {

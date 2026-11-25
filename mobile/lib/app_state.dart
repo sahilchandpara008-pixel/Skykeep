@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 import 'config.dart';
 import 'services/api.dart';
+import 'services/measurement.dart';
 import 'services/play_integrity.dart';
 import 'services/status.dart';
 import 'services/thumbs.dart';
@@ -13,8 +14,10 @@ import 'services/upi.dart';
 
 /// Holds server status, the live plan catalog and the pending-payment queue.
 class AppController extends ChangeNotifier with WidgetsBindingObserver {
-  AppController({required this.api, required this.prefs, this.upi = const UpiLauncher(), this.realtime = true, this.play = const PlayIntegrity(), this.thumbs = const Thumbs()})
-      : queue = PendingPaymentsQueue(prefs);
+  AppController({required this.api, required this.prefs, this.upi = const UpiLauncher(), this.realtime = true, this.play = const PlayIntegrity(),
+      this.thumbs = const Thumbs(), Measurement? measurement, this.onUserChanged})
+      : queue = PendingPaymentsQueue(prefs),
+        measurement = measurement ?? Measurement(api: api, prefs: prefs, enabled: false);
 
   final Api api;
   final SharedPreferences prefs;
@@ -23,6 +26,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   final bool realtime;
   final PlayIntegrity play;
   final Thumbs thumbs;
+
+  /// Optional analytics / Meta ad measurement (only with the user's choice). Inert unless main() enables it.
+  final Measurement measurement;
+
+  /// Called after a refresh when the signed-in user changed (push token registration).
+  final void Function()? onUserChanged;
+  String? _lastUser;
   bool _playSyncing = false;
 
   AppStatus status = const AppStatus();
@@ -52,6 +62,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       flushPayments();
+      measurement.resumed();
       refresh().then((_) => syncPlay());
     }
   }
@@ -65,6 +76,11 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       // guests can buy too, so everyone with a session gets their pending-payment card
       pendingOrder = await api.latestPendingOrder();
       notifyListeners();
+      if (status.userId != _lastUser) {
+        _lastUser = status.userId;
+        unawaited(measurement.sync(status.userId));
+        onUserChanged?.call();
+      }
     } catch (e) {
       debugPrint('status refresh failed: $e');
     }
@@ -93,6 +109,10 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       _playSyncing = false;
     }
   }
+
+  /// Changes when the server would show this user different videos (login, ads / organic, Premium).
+  String get accessKey => '${status.loaded}|${status.userId}|${status.source}|${status.isGuest}|${status.hasAdsAccess}'
+      '|${status.canPlayPremium}|${status.accessStatus}|${api.isGuest}';
 
   Future<Map<String, String>> flushPayments() async {
     final r = await queue.flush(api.reportResult);

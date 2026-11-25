@@ -11,6 +11,8 @@ import 'screens/home.dart';
 import 'screens/login_sheet.dart';
 import 'screens/welcome.dart';
 import 'services/api.dart';
+import 'services/measurement.dart';
+import 'services/push.dart';
 import 'theme.dart';
 
 Future<void> main() async {
@@ -24,9 +26,11 @@ Future<void> main() async {
   } catch (e) {
     debugPrint('session start failed: $e'); // offline: app still opens; retried on next launch
   }
-  final app = AppController(api: api, prefs: prefs);
+  final app = AppController(api: api, prefs: prefs, measurement: Measurement(api: api, prefs: prefs),
+      onUserChanged: () => unawaited(Push.register()));
   unawaited(app.start());
   runApp(SkyKeepApp(controller: app));
+  unawaited(Push.start(api));
 }
 
 class SkyKeepApp extends StatefulWidget {
@@ -39,7 +43,6 @@ class SkyKeepApp extends StatefulWidget {
 }
 
 class _SkyKeepAppState extends State<SkyKeepApp> {
-  final _nav = GlobalKey<NavigatorState>();
   StreamSubscription<AuthState>? _auth;
 
   @override
@@ -48,7 +51,9 @@ class _SkyKeepAppState extends State<SkyKeepApp> {
     if (widget.home == null) {
       _auth = widget.controller.api.authChanges.listen((s) {
         widget.controller.refresh();
-        if (s.event == AuthChangeEvent.passwordRecovery && _nav.currentContext != null) showSetPassword(_nav.currentContext!);
+        if (s.event == AuthChangeEvent.passwordRecovery && Push.navigatorKey.currentContext != null) {
+          showSetPassword(Push.navigatorKey.currentContext!);
+        }
       });
     }
   }
@@ -65,7 +70,8 @@ class _SkyKeepAppState extends State<SkyKeepApp> {
     return AppScope(
       controller: widget.controller,
       child: MaterialApp(
-        navigatorKey: _nav,
+        navigatorKey: Push.navigatorKey,
+        scaffoldMessengerKey: Push.messengerKey,
         title: Config.appName,
         debugShowCheckedModeBanner: false,
         theme: buildTheme(googleFonts: widget.googleFonts),

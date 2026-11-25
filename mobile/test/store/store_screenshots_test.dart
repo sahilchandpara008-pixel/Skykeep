@@ -79,7 +79,7 @@ final Map<String, (FakeApi Function(), Widget)> _screens = {
   '4_channels': (() => _withPlans(FakeApi(status: statusJson(), channelsList: _channels)), const ChannelsScreen()),
   '5_payment': (() => _withPlans(FakeApi()), Scaffold(body: PaymentStatusView(status: 'paid', reference: 'SK20261112GOLD0001', onCheck: () {}, onTryAgain: () {}))),
   '6_profile': (() => _withPlans(FakeApi(guest: true, status: statusJson(guest: true))), const ProfileScreen()),
-  '7_welcome': (() => _withPlans(FakeApi()), ConsentScreen(onAgree: () {})),
+  '7_welcome': (() => _withPlans(FakeApi()), ConsentScreen(onAgree: (_) {})),
 };
 
 void main() {

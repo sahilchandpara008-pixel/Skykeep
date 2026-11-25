@@ -7,6 +7,7 @@ class AppStatus {
     this.source = 'organic',
     this.hasAdsAccess = false,
     this.isPremium = false,
+    this.canPlayPremium = false,
     this.hasPlan = false,
     this.planName,
     this.planEndsAt,
@@ -27,6 +28,9 @@ class AppStatus {
 
   final String? userId;
   final bool isGuest, isAdmin, hasAdsAccess, isPremium, hasPlan;
+
+  /// Full Premium videos (server: can_play_premium, else is_premium). Free users get previews.
+  final bool canPlayPremium;
   final String source, accessStatus;
   final String? planName, displayName, avatarUrl;
   final DateTime? planEndsAt;
@@ -43,6 +47,7 @@ class AppStatus {
         source: s['source'] as String? ?? 'organic',
         hasAdsAccess: s['has_ads_access'] as bool? ?? false,
         isPremium: s['is_premium'] as bool? ?? false,
+        canPlayPremium: (s['can_play_premium'] ?? s['is_premium']) as bool? ?? false,
         hasPlan: s['has_plan'] as bool? ?? false,
         planName: s['plan_name'] as String?,
         planEndsAt: DateTime.tryParse(s['plan_ends_at']?.toString() ?? '')?.toLocal(),
