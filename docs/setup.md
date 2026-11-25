@@ -12,12 +12,22 @@ Your project ref is `vzeehoissxdutmxdezjf` (Tokyo). Change these in the Supabase
      - `com.skykeep.app://login-callback`
      - `com.skykeep.play://login-callback`
      - `https://skykeep.vercel.app/**`
-3. **Integrations › Cron**: the `cancel-stale-orders` job is created by the migrations. Add two HTTP jobs (Integrations › Cron › New job › HTTP request):
-   - `meta-send` every 5 min, POST `https://vzeehoissxdutmxdezjf.supabase.co/functions/v1/meta-send`, header `Authorization: Bearer <service role key>`
+3. **Cron (automatic jobs)**: the migrations create every job (`expire-orders`, `meta-send` every 5 min,
+   `flixvault-sync` every 10 min, `push-tick` every minute, `measurement-retention` daily). They call our edge
+   functions through `pg_net` with a random key that the database generated itself (`private.meta_cron`, header
+   `x-cron-key`; never in code). Turn the calls on **once** in the SQL editor:
+   ```sql
+   update private.meta_cron set url = 'https://vzeehoissxdutmxdezjf.supabase.co/functions/v1/meta-send' where id = 1;
+   ```
+   (or `select admin_set_cron_url('…/functions/v1/meta-send')` from the admin panel's owner session).
+   `admin_cron_status()` shows whether it is set. Delete any old dashboard HTTP job for meta-send.
 4. **Edge Functions › Secrets** (only when you need them):
    | Secret | Needed for |
    |---|---|
    | `UPI_WEBHOOK_SECRET` | only if a bank/provider will call `upi-webhook` |
+   | `FLIXVAULT_PARTNER_KEY` | Flixvault videos: the key Flixvault's owner creates for the `skykeep` partner |
+   | `FLIXVAULT_FEED_URL` | Flixvault's `partner-feed` function address (or put it in `private.flixvault_settings.feed_url` with SQL) |
+   | `FCM_SERVICE_ACCOUNT` | push notifications: Firebase console › Project settings › Service accounts › Generate new private key (paste the whole JSON) |
    | `PLAY_PACKAGE` = `com.skykeep.play` | same |
 
 ## 2. GitHub secrets (Settings › Secrets and variables › Actions)
@@ -62,3 +72,15 @@ Admin › Payments › enter your UPI ID and payee name (exactly as your bank sh
 - GitHub secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
 - SHA-256 fingerprint (public; used by `/.well-known/assetlinks.json` via Vercel env `ANDROID_SIGNING_SHA256`):
   `2E:40:74:C2:F0:97:81:C2:7E:7D:A9:32:6D:9C:92:33:80:D0:17:D3:10:88:77:4D:D1:7C:61:A2:3E:56:ED:35`
+
+## Flixvault videos, push notifications, Meta
+- **Flixvault**: after the two secrets above are set, `flixvault-sync` fills `flixvault_*` every 10 minutes
+  (Admin › Flixvault shows `admin_flixvault_sync()`). Browsing reads SkyKeep's copy; only *play* asks Flixvault
+  (`flixvault-feed`), with SkyKeep's own rules: audience `ads` when `has_ads_access`, else `organic`; Premium
+  (`my_status.can_play_premium`) gets full videos, everyone else previews. Nothing in SkyKeep can change Flixvault.
+  Run `python3 tool/check_backend_identity.py`: no other project's address or key may enter the repository.
+- **Push**: set `FCM_SERVICE_ACCOUNT`; the app calls `register_push_token` on every start. Admin › Notifications
+  switches automations on/off and edits texts; all hours are India time (quiet 03:00–09:00 IST).
+- **Meta**: Admin › Meta: Dataset (Pixel) ID, Meta app ID, test code, token (write-only, shown masked).
+  App events need the app context the phone sends with `set_measurement_preferences`; Purchase is sent only for
+  verified payments.

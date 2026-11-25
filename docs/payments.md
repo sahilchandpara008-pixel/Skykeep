@@ -12,7 +12,9 @@ after you see it in your bank.
    - It makes a reference like `SK20261112A1B2C3D4` and an expiry time of **30 minutes**.
    - One open order per user per plan: a double tap reuses it. There's a limit of 10 new orders per hour per user.
    - If the price changed since the page loaded, the app shows "Price updated to ₹X" first.
-   - A Meta `InitiateCheckout` event is queued.
+   - A Meta `InitiateCheckout` event is queued (ads users only). A Meta `Purchase` is queued only once the
+     payment is **verified** (Approve, Mark paid, bank SMS, provider, or "Bank verified"), never from the phone's
+     SUCCESS alone; a revoked order's Purchase is never sent.
 3. **UPI app:** the app opens `upi://pay?pa=<upi>&pn=<payee>&am=<amount>&cu=INR&tn=SkyKeep <reference>&tr=<reference>`
    (every value URL-encoded) through Android's "Pay with" chooser.
    - If no UPI app can open it, the app shows a **QR code** of the same link plus **Copy** buttons for the UPI ID, amount
@@ -36,7 +38,8 @@ after you see it in your bank.
    - **Approve** runs in one transaction: it checks the order and UTR, marks it paid, grants the plan (2 TB + Premium until
      the end date) and logs who did it. Approving twice does nothing extra.
    - **Reject** asks for a reason, which is logged.
-   - **Mark paid** is for when you find the payment in your bank before the buyer sends a UTR.
+   - **Mark paid** is for when you find the payment in your bank before the buyer sends a UTR (it also counts as
+     bank verified).
 7. **Expiry:** unpaid orders expire after **30 minutes** (a job runs every 5 minutes). The app says "This order expired —
    start again" and still offers **I have paid** for 24 hours.
 8. **History:** every status change is stored in `payment_order_events` (who, when, old → new). It's shown under

@@ -2,10 +2,10 @@ name: supabase
 
 on:
   pull_request:
-    paths: ['supabase/**', '.github/workflows/supabase.yml']
+    paths: ['supabase/**', 'tool/check_backend_identity.py', '.github/workflows/supabase.yml']
   push:
     branches: [main]
-    paths: ['supabase/**', '.github/workflows/supabase.yml']
+    paths: ['supabase/**', 'tool/check_backend_identity.py', '.github/workflows/supabase.yml']
 
 concurrency:
   group: supabase-${{ github.ref }}
@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: No other backend / partner keys in source
+        run: python3 tool/check_backend_identity.py
       - uses: supabase/setup-cli@v1
         with: { version: latest }
       - run: supabase start -x studio,imgproxy,vector,logflare,supavisor,mailpit

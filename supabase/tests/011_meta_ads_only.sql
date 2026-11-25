@@ -29,7 +29,12 @@ select tests.as_user('00000000-0000-0000-0000-00000000b1a1');
 insert into tests.o select 'a', (j->>'order_id')::uuid, j->>'reference' from (select create_order('00000000-0000-0000-0000-00000000b1f1') j) x;
 select is(report_result((select id from tests.o where k='a'), 'ApprovalRefNo=811122223333&Status=SUCCESS&txnRef=' || (select ref from tests.o where k='a')) ->> 'status', 'paid', 'ads user paid');
 reset role;
-select is((select count(*)::int from meta_events where user_id = '00000000-0000-0000-0000-00000000b1a1' and event_name in ('InitiateCheckout','Purchase')), 2, 'ads user: checkout + purchase queued for Meta');
+select is((select count(*)::int from meta_events where user_id = '00000000-0000-0000-0000-00000000b1a1' and event_name = 'InitiateCheckout'), 1, 'ads user: checkout queued for Meta');
+select is((select count(*)::int from meta_events where user_id = '00000000-0000-0000-0000-00000000b1a1' and event_name = 'Purchase'), 0,
+  'phone SUCCESS alone is never reported as a Purchase');
+update payment_orders set bank_verified = true, bank_verified_at = now() where id = (select id from tests.o where k='a');
+select is((select count(*)::int from meta_events where user_id = '00000000-0000-0000-0000-00000000b1a1' and event_name = 'Purchase'), 1,
+  'ads user: Purchase queued once the payment is verified');
 
 -- organic / Play user: nothing reported
 select tests.as_user('00000000-0000-0000-0000-00000000b1a2');

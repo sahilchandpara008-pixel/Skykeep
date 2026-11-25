@@ -73,3 +73,33 @@ export async function sha256(s: string) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s.trim().toLowerCase()));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
+
+/** pg_cron / database calls send header x-cron-key; the key lives only in private.meta_cron. */
+export async function cronOk(req: Request): Promise<boolean> {
+  const key = req.headers.get('x-cron-key') ?? '';
+  if (!key) return false;
+  const { data } = await admin().rpc('meta_cron_ok', { p_key: key });
+  return data === true;
+}
+
+/** The service role key as a bearer token (older dashboard HTTP cron jobs). */
+export function isServiceBearer(req: Request): boolean {
+  const k = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  return !!k && safeEqual(req.headers.get('Authorization') ?? '', `Bearer ${k}`);
+}
+
+/** Cron, the service role, or the signed-in owner. */
+export async function cronOrOwner(req: Request): Promise<boolean> {
+  if ((await cronOk(req)) || isServiceBearer(req)) return true;
+  const c = await caller(req);
+  return !!c && (await isOwner(c.user.id));
+}
+
+/** Flixvault's partner feed address: secret FLIXVAULT_FEED_URL, else private.flixvault_settings (cached). */
+let feedUrl: string | null = Deno.env.get('FLIXVAULT_FEED_URL') || null;
+export async function flixvaultFeedUrl(): Promise<string> {
+  if (feedUrl) return feedUrl;
+  const { data } = await admin().rpc('flixvault_feed_url');
+  feedUrl = typeof data === 'string' && data.startsWith('https://') ? data : null;
+  return feedUrl ?? '';
+}

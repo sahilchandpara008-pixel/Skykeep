@@ -38,3 +38,13 @@ verify_jwt = false
 
 [functions.upi-webhook]
 verify_jwt = false
+
+# called by pg_cron / the database with header x-cron-key (no JWT); each function checks the key or the owner itself
+[functions.meta-send]
+verify_jwt = false
+
+[functions.push-send]
+verify_jwt = false
+
+[functions.flixvault-sync]
+verify_jwt = false

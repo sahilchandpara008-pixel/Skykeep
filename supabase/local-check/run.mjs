@@ -1,5 +1,5 @@
 // Quick local check without Docker: applies migrations + pgTAP tests on PGlite with
-// a minimal stub of Supabase's auth/storage/cron schemas. CI uses the real `supabase test db`.
+// a minimal stub of Supabase's auth/storage/cron/net schemas. CI uses the real `supabase test db`.
 // usage: node supabase/local-check/run.mjs   (needs: npm i @electric-sql/pglite)
 import { PGlite } from '@electric-sql/pglite';
 import { pgtap } from '@electric-sql/pglite/pgtap';
@@ -13,7 +13,8 @@ const db = new PGlite({ extensions: { pgtap } });
 await db.exec(readFileSync(join(root, 'local-check/stub.sql'), 'utf8'));
 for (const f of readdirSync(join(root, 'migrations')).sort()) {
   const sql = readFileSync(join(root, 'migrations', f), 'utf8')
-    .replace(/create extension if not exists pg_cron;/i, '');
+    // pg_cron / pg_net are not in PGlite: stub.sql provides cron.schedule/unschedule/job and net.http_post.
+    .replace(/create extension if not exists pg_(cron|net)( with schema \w+)?;/gi, '');
   try { await db.exec(sql); console.log('migration ok', f); }
   catch (e) { console.error('MIGRATION FAILED', f, e.message, e.position ?? ''); process.exit(1); }
 }

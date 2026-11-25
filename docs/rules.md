@@ -5,7 +5,9 @@ functions), never only in the app. Tests: `supabase/tests/003_content_matrix.sql
 
 ## Who is "ads" and who is "organic"
 - Decided **once**, on the first app open, and never changes, not even by an admin.
-- **Ads**: the install referrer / APK referrer has `utm_source` = meta, facebook, instagram or ig (any case).
+- **Ads**: the install referrer / APK referrer has `utm_source` = meta, facebook, instagram, ig, fb, messenger,
+  threads, audience_network or apps.facebook.com (any case, also URL-encoded), or it is a facebook.com /
+  instagram.com link. This includes Google Play installs from Meta app-install ads.
   The ads APK (`SkyKeep-ads.apk`) has this referrer built in.
 - **Organic**: everything else (website APK, Google Play installs, no referrer).
 - A guest who logs in or signs up keeps the same account and the same source.
@@ -53,3 +55,8 @@ they have an active plan).
 | Website APK | `com.skykeep.app` | Your UPI (plans page inside the app) |
 | Ads APK | `com.skykeep.app` + ads referrer | Your UPI |
 | Google Play | `com.skykeep.play` | **Never sells anything** (Google doesn't allow your own UPI checkout in Play apps). Free tier only: 15 GB after the Play Integrity check; Premium screens say "Premium members only". See `play-store.md`. |
+
+## Flixvault videos (same rules)
+Flixvault channels/posts copied into SkyKeep (`flixvault_*`) follow the table above: audience `all` for everyone,
+`organic` for organic users, `ads` for users with full access. Premium items play in full only for Premium
+(`has_full_access`); everyone else gets the preview. Hidden (by a SkyKeep admin) = gone for everyone but admins.
