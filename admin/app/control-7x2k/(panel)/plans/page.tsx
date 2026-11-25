@@ -3,6 +3,7 @@ import { run, str, num, bool } from '@/lib/action';
 import { Submit } from '@/components/ui';
 import { count, planLength, rupees } from '@/lib/format';
 import { PlanCard } from './plan-card';
+import { clearUpi, saveUpi } from '../payments/actions';
 
 async function saveMode(f: FormData) {
   'use server';
@@ -38,12 +39,14 @@ const VIS = [['everyone', 'Everyone'], ['ads', 'Ads only'], ['organic', 'Organic
 export default async function Plans() {
   await requireAdmin(true);
   const sb = await supabaseServer();
-  const [{ data: mode }, { data: plans = [] }, { data: sales }, { count: claims }] = await Promise.all([
+  const [{ data: mode }, { data: plans = [] }, { data: sales }, { count: claims }, { data: ps }] = await Promise.all([
     sb.from('app_mode').select('*').single(),
     sb.from('plans').select('*').order('position'),
     sb.rpc('admin_sales'),
     sb.from('free_plan_claims').select('*', { count: 'exact', head: true }),
+    sb.from('payment_settings').select('enabled,upi_id,payee_name').single(),
   ]);
+  const live = !!(ps?.enabled && ps?.upi_id && ps?.payee_name);
   const pc = (sales?.plan_counts ?? {}) as Record<string, { subscribers: number; orders: number }>;
 
   return (
@@ -72,6 +75,25 @@ export default async function Plans() {
           <Submit>Save</Submit>
         </form>
       </div>
+
+      <section id="upi-settings" className="card mb-6">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="h2 mb-0">UPI settings</h2>
+          <span className={`badge ${live ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{live ? 'Payments live' : 'Payments off'}</span>
+        </div>
+        <p className="mb-3 text-sm">Money goes to <b>{ps?.upi_id ?? 'no UPI ID'}</b> · {ps?.payee_name ?? 'no payee name'}</p>
+        <form action={saveUpi} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <input type="hidden" name="back" value="/control-7x2k/plans" />
+          <div><label className="label" htmlFor="upi">UPI ID (name@bank)</label>
+            <input id="upi" name="upi_id" className="input" required pattern="[A-Za-z0-9._\-]{2,255}@[A-Za-z][A-Za-z0-9]{1,63}" defaultValue={ps?.upi_id ?? ''} /></div>
+          <div><label className="label" htmlFor="payee">Payee name (exactly as your bank shows it)</label>
+            <input id="payee" name="payee_name" className="input" required maxLength={100} defaultValue={ps?.payee_name ?? ''} /></div>
+          <Submit confirm="New payments will go to the UPI ID you entered. Pending orders for the old UPI ID will be cancelled. Continue?">Save UPI</Submit>
+        </form>
+        {ps?.upi_id && <form action={clearUpi} className="mt-2"><input type="hidden" name="back" value="/control-7x2k/plans" />
+          <Submit className="btn-danger" confirm="Clear the UPI ID? Payments will turn OFF in the app immediately.">Clear UPI ID</Submit></form>}
+        <p className="mt-2 text-xs text-muted">Payments on/off and instant activation are on the Payments page.</p>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {(plans ?? []).map((p) => (

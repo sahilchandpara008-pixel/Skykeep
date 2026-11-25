@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser, uploadWithProgress, videoDuration, videoThumbnail } from '@/lib/supabase/client';
+import { fromIstInput, toIstInput } from '@/lib/format';
 
 type Item = {
   id?: string; media_key: string; thumbnail_key: string | null; trailer_key: string | null; mime: string | null;
@@ -13,7 +14,6 @@ type Post = {
 };
 
 const ext = (f: File) => (f.name.includes('.') ? f.name.split('.').pop() : 'bin');
-const toLocal = (s: string | null) => (s ? new Date(new Date(s).getTime() + 330 * 60000).toISOString().slice(0, 16) : '');
 
 export function PostEditor({ channels, post, defaultChannel }: { channels: { id: string; name: string }[]; post: Post | null; defaultChannel?: string }) {
   const router = useRouter();
@@ -22,7 +22,7 @@ export function PostEditor({ channels, post, defaultChannel }: { channels: { id:
   const [description, setDescription] = useState(post?.description ?? '');
   const [audience, setAudience] = useState(post?.audience ?? 'all');
   const [status, setStatus] = useState(post?.status ?? 'draft');
-  const [publishAt, setPublishAt] = useState(toLocal(post?.publish_at ?? null));
+  const [publishAt, setPublishAt] = useState(toIstInput(post?.publish_at));
   const [hidden, setHidden] = useState(post?.hidden ?? false);
   const [items, setItems] = useState<Item[]>([...(post?.post_items ?? [])].sort((a, b) => a.position - b.position));
   const [removed, setRemoved] = useState<Item[]>([]);
@@ -69,7 +69,7 @@ export function PostEditor({ channels, post, defaultChannel }: { channels: { id:
     setBusy(true); setMsg(null);
     const sb = supabaseBrowser();
     const row = { channel_id: channelId, title, description: description || null, audience, status, hidden,
-      publish_at: status === 'scheduled' && publishAt ? new Date(`${publishAt}:00+05:30`).toISOString() : null };
+      publish_at: status === 'scheduled' && publishAt ? fromIstInput(publishAt) : null };
     try {
       let id = post?.id;
       if (id) { const { error } = await sb.from('posts').update(row).eq('id', id); if (error) throw error; }
