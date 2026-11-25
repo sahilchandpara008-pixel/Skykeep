@@ -32,10 +32,9 @@ class Config {
   static const firebaseProjectId = 'skykeep-a345c';
   static const firebaseStorageBucket = 'skykeep-a345c.firebasestorage.app';
 
-  /// Firebase app id per package. The Play package (com.skykeep.play) has no Firebase app yet: empty means push is
-  /// skipped in that build until it is set (here, or with --dart-define=FIREBASE_PLAY_APP_ID=...).
+  /// Firebase app id per package (com.skykeep.app for website/ads APKs, com.skykeep.play for the Play build).
   static const firebaseDirectAppId = '1:129670905169:android:867b5c8efcab4d6b2de770';
-  static const firebasePlayAppId = String.fromEnvironment('FIREBASE_PLAY_APP_ID');
+  static const firebasePlayAppId = String.fromEnvironment('FIREBASE_PLAY_APP_ID', defaultValue: '1:129670905169:android:8f435e6b69837a002de770');
   static const firebaseAppId = playStore ? firebasePlayAppId : firebaseDirectAppId;
 
   static const jsChannel = '${appName}App';
