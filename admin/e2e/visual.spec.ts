@@ -1,8 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
 
 // Screenshots every page at 375 and 1280 px; fails on any error alert or console error.
-const PUBLIC = ['/', '/subscribe?app=1', '/subscribe?app=1&paused=1', '/privacy', '/terms', '/delete-account', '/report-content', '/d', '/p/00000000-0000-0000-0000-000000000000', '/control-7x2k/login'];
-const ADMIN = ['/control-7x2k', '/control-7x2k/channels', '/control-7x2k/channels?edit=new', '/control-7x2k/posts', '/control-7x2k/approvals', '/control-7x2k/payments',
+const PUBLIC = ['/', '/subscribe?app=1', '/subscribe?app=1&paused=1', '/privacy', '/terms', '/delete-account', '/report-content', '/d', '/get', '/get?utm_source=meta&utm_medium=paid_social', '/p/00000000-0000-0000-0000-000000000000', '/control-7x2k/login'];
+const ADMIN = ['/control-7x2k', '/control-7x2k/channels', '/control-7x2k/channels?edit=new', '/control-7x2k/posts', '/control-7x2k/flixvault', '/control-7x2k/flixvault?tab=posts',
+  '/control-7x2k/flixvault?tab=reports', '/control-7x2k/notifications', '/control-7x2k/approvals', '/control-7x2k/payments',
   '/control-7x2k/users', '/control-7x2k/requests', '/control-7x2k/plans', '/control-7x2k/meta', '/control-7x2k/admins'];
 
 async function check(page: Page, path: string, name: string) {

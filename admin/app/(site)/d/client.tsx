@@ -1,20 +1,7 @@
 'use client';
 import { useEffect } from 'react';
 import Script from 'next/script';
-
-type Fbq = ((...a: unknown[]) => void) & { callMethod?: (...a: unknown[]) => void; queue: unknown[]; loaded: boolean; version: string; push: unknown };
-
-declare global { interface Window { fbq?: Fbq; _fbq?: Fbq } }
-
-function initPixel(id: string) {
-  if (window.fbq) return;
-  const f = function (...a: unknown[]) { if (f.callMethod) f.callMethod(...a); else f.queue.push(a); } as Fbq;
-  f.queue = []; f.loaded = true; f.version = '2.0'; f.push = f;
-  window.fbq = window._fbq = f;
-  window.fbq('init', id);
-}
-
-const cookie = (n: string) => document.cookie.split('; ').find((c) => c.startsWith(`${n}=`))?.split('=')[1] ?? null;
+import { PIXEL_SCRIPT, cookie, initPixel, trackLead } from '@/lib/meta-pixel';
 
 export function DownloadClient({ apkUrl, pixelId }: { apkUrl: string; pixelId: string | null }) {
   useEffect(() => {
@@ -30,8 +17,8 @@ export function DownloadClient({ apkUrl, pixelId }: { apkUrl: string; pixelId: s
 
   return (
     <>
-      {pixelId && <Script src="https://connect.facebook.net/en_US/fbevents.js" strategy="afterInteractive" />}
-      <a href={apkUrl} onClick={() => window.fbq?.('track', 'Lead')} download
+      {pixelId && <Script src={PIXEL_SCRIPT} strategy="afterInteractive" />}
+      <a href={apkUrl} onClick={() => { if (pixelId) trackLead(); }} download
         className="gradient mt-6 inline-block rounded-xl px-8 py-3 font-semibold text-white">Download APK</a>
     </>
   );

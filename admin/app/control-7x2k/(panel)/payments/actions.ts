@@ -3,18 +3,20 @@ import { requireAdmin, supabaseServer } from '@/lib/supabase/server';
 import { run, str } from '@/lib/action';
 
 const back = (f: FormData) => `/control-7x2k/payments${str(f, 'f') ? `?f=${str(f, 'f')}` : ''}`;
+/** UPI settings are editable on both Payments and Plans; go back to the page the form was on. */
+const upiBack = (f?: FormData) => (f && str(f, 'back') === '/control-7x2k/plans' ? '/control-7x2k/plans' : '/control-7x2k/payments');
 
 export async function saveUpi(f: FormData) {
   await requireAdmin(true);
-  await run('/control-7x2k/payments', 'UPI settings saved', async () => {
+  await run(upiBack(f), 'UPI settings saved', async () => {
     const sb = await supabaseServer();
     return sb.from('payment_settings').update({ upi_id: str(f, 'upi_id'), payee_name: str(f, 'payee_name') }).eq('id', true);
   });
 }
 
-export async function clearUpi() {
+export async function clearUpi(f?: FormData) {
   await requireAdmin(true);
-  await run('/control-7x2k/payments', 'UPI ID cleared — payments are off', async () => {
+  await run(upiBack(f), 'UPI ID cleared — payments are off', async () => {
     const sb = await supabaseServer();
     return sb.from('payment_settings').update({ upi_id: '' }).eq('id', true);
   });

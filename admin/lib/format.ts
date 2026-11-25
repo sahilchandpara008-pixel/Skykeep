@@ -8,9 +8,20 @@ export const rupees = (v: number | null | undefined, whole = true) => (whole ? i
 export const paise = (p: number | null | undefined) => inr.format(Number(p ?? 0) / 100);
 export const count = (v: number | null | undefined) => new Intl.NumberFormat('en-IN').format(Number(v ?? 0));
 
-/** Dates always shown in IST. */
+/**
+ * The admin's single date/time formatter: every date and time in the admin is shown in India time (Asia/Kolkata),
+ * whatever the server's or browser's time zone is. Use these, never toLocaleString / raw dates.
+ */
+export const IST_ZONE = 'Asia/Kolkata';
 export const dateTime = (s: string | null | undefined) => (s ? `${dt.format(new Date(s))} IST` : '—');
 export const date = (s: string | null | undefined) => (s ? d.format(new Date(s)) : '—');
+/** Hour of day (0–23) as "09:00" — for IST hour pickers (quiet hours, daily times). */
+export const hourLabel = (h: number) => `${String(h).padStart(2, '0')}:00`;
+/** ISO timestamp → value for <input type="datetime-local"> in IST. */
+export const toIstInput = (s: string | null | undefined) =>
+  (s ? new Date(new Date(s).getTime() + 330 * 60000).toISOString().slice(0, 16) : '');
+/** <input type="datetime-local"> value typed in IST → ISO timestamp (null when empty). */
+export const fromIstInput = (v: string | null | undefined) => (v ? new Date(`${v}:00+05:30`).toISOString() : null);
 
 export function bytes(n: number | null | undefined) {
   let v = Number(n ?? 0);
