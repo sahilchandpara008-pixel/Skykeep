@@ -3,7 +3,7 @@ class Config {
   static const appName = 'SkyKeep';
   static const shortCode = 'SK';
   static const supportEmail = 'help.skykeep@gmail.com';
-  static const websiteUrl = String.fromEnvironment('WEBSITE_URL', defaultValue: 'https://skykeep.vercel.app');
+  static const websiteUrl = String.fromEnvironment('WEBSITE_URL', defaultValue: 'https://skykeep-web.vercel.app');
   static const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
   static const supabaseKey = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
 

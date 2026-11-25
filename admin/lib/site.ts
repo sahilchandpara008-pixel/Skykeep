@@ -1,7 +1,7 @@
 export const APP_NAME = 'SkyKeep';
 export const SHORT_CODE = 'SK';
 export const SUPPORT_EMAIL = 'help.skykeep@gmail.com';
-export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://skykeep.vercel.app';
+export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://skykeep-web.vercel.app';
 export const DIRECT_PACKAGE = 'com.skykeep.app';
 export const PLAY_PACKAGE = 'com.skykeep.play';
 export const ACCENT = '#4F8CFF';

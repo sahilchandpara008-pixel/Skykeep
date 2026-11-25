@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:skykeep/services/premium_web.dart';
 import 'package:skykeep/services/status.dart';
 
-const base = 'https://skykeep.vercel.app';
+const base = 'https://skykeep-web.vercel.app';
 
 void main() {
   test('plans page URL params', () {
@@ -16,9 +16,9 @@ void main() {
     expect(allowWebNavigation('$base/d'), isTrue);
     expect(allowWebNavigation('$base/'), isFalse);
     expect(allowWebNavigation('$base/admin'), isFalse);
-    expect(allowWebNavigation('http://skykeep.vercel.app/subscribe'), isFalse);
+    expect(allowWebNavigation('http://skykeep-web.vercel.app/subscribe'), isFalse);
     expect(allowWebNavigation('https://evil.example/subscribe'), isFalse);
-    expect(allowWebNavigation('https://skykeep.vercel.app.evil.example/subscribe'), isFalse);
+    expect(allowWebNavigation('https://skykeep-web.vercel.app.evil.example/subscribe'), isFalse);
     expect(allowWebNavigation('upi://pay?pa=x'), isFalse);
   });
 
